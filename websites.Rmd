@@ -12,7 +12,7 @@ library("sqldf")
 ```
 
 ##################################################################
-clean the table from some inaccuracies and save as sandboxCleaned.csv
+create a new feature of website categories (can be ordinal- save as web.csv or binary- saved as webBinary.csv)
 ##################################################################
 
 
