@@ -1,0 +1,119 @@
+---
+title: "Project Feature Importance"
+author: "Ofir Mizrahi"
+date: "2018 M05 24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F)
+library(sqldf)
+library(ggplot2)
+```
+
+##Load Data
+
+We are loading only projects with thier first project. Also, "personal" attribute is set as binary as results were better with it (instead of it being ordinal).
+
+```{r}
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
+temp <- read.csv(path, header = T)
+temp$X <- NULL
+
+project <- temp[,c(6,24, 27,28,29,31,43,44,50,55,25)]
+project <- project[!c(project$averageBackersRequired==Inf),]
+rm(path,temp)
+```
+
+
+##Feature Importance for BIC
+###Backward Step
+
+Let's create a model with all features and then remove one of them and see how it affects the BIC measure.
+
+We are using BIC meausure as there is not need to optimaize any parameter (such as threshold) as well as taking into conciderations the number of variables in the model.
+
+The calculation done is part model BIC minus full model BIC. As we want to minimize BIC if we get:
+a positive result, means adding the excluded feature to create the full model was creating a better model.
+a negative result, means adding the excluded feature to create the full model was not needed and created a worst model.
+
+The commentary on the plot is pretty stright forward.
+
+The number of perks and average backers requiered are the only features still staying important.
+
+```{r Backward Step}
+
+features <- names(project)[1:ncol(project)-1]
+
+string <- "success ~"
+for (j in 1:length(features)) {
+  if(j==1){
+    string <- paste(string,features[j])
+  }else{
+    string <- paste(string,"+",features[j])
+  }
+}
+
+lmFull  <- glm(formula= success ~ goal + valuta + lowestPerk + highestPerk+ medianPerk + numPerks+ addedPerks + durationCampaign + averageBackersRequired, family = binomial(), data = project)
+
+
+#bic
+fullBIC <- AIC(lmFull, k=log(nrow(project)))
+
+bic <- vector()
+for (i in 1:length(features)) {
+  current <- features[-i]
+  string <- "success ~"
+  for (j in 1:length(current)) {
+    if(j==1){
+      string <- paste(string,current[j])
+    }else{
+      string <- paste(string,"+",current[j])
+    }
+  }
+  lmPart  <- glm(string, family = binomial(), data = project)
+  partBIC <- AIC(lmPart, k=log(nrow(project)))
+  bic[i] <- partBIC- fullBIC
+}
+
+res <- as.data.frame(cbind(features,bic))
+res$bic <- as.numeric(as.character(res$bic))
+ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC)
+
+```
+
+
+###Forward Step
+
+Let's now create a model with no features (intercept only) and then add only one of the features and see how it affects the BIC measure.
+
+The calculation done is empty model BIC minus part model BIC. As we want to minimize BIC if we get:
+a positive result, means adding the excluded feature to create the full model was creating a better model.
+a negative result, means adding the excluded feature to create the full model was not needed and created a worst model.
+
+Steps forward is always somwhat more revealing. Here we can see that average money reward has information that is included in other features in the model. number of perks and average backers required still play an important role. Goal and duration do not influence as much as reaserch thinks.
+Average money reward= (goal)/(number of perk levels) and Average backers required=(goal)/(mean of all perk $) therefore the top four most important features are all connected.
+
+```{r Forward step}
+lmEmpty <- glm(success ~ 1, family = binomial(), data = project)
+emptyBIC <- AIC(lmEmpty, k=log(nrow(project)))
+
+
+features <- names(project)[1:ncol(project)-1]
+bic <- vector()
+for (i in 1:length(features)) {
+  current <- features[i]
+  string <- paste("success ~",current)
+  lmPart  <- glm(string, family = binomial(), data = project)
+  partBIC <- AIC(lmPart, k=log(nrow(project)))
+  bic[i] <- emptyBIC - partBIC 
+}
+
+res <- as.data.frame(cbind(features,bic))
+res$bic <- as.numeric(as.character(res$bic))
+ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
+```
