@@ -1,0 +1,330 @@
+---
+title: "Sections Analysis"
+author: "Ofir Mizrahi"
+date: "2018 M05 31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(corrplot)
+library(ggcorrplot)
+library(sqldf)
+library(plotly)
+```
+
+
+#####################################################
+understanding the top features by bic and aic
+#####################################################
+
+##Load Tables
+
+We will load the 3 tables (mostly for thier feature names). We will use the rows from perk table as we only took away the INF values, we still want to predict success for users where this is not thier first project.
+For each table, We took down features that in the feature analysis donated nothing.
+```{r}
+#project table
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\projectBinaryWeb.csv"
+project <- read.csv(path, header = T)
+project$X <- NULL
+
+project <- project[,c(4:10,17)]
+rm(path)
+
+#user table
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\userBinaryWeb.csv"
+user <- read.csv(path, header = T)
+user$X <- NULL
+user$continent <- NULL
+user$noFacebookFriends <- NULL
+
+rm(path)
+
+#perk table
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
+temp <- read.csv(path, header = T)
+temp$X <- NULL
+
+perk <- temp[,c(6,27,29,31,44,50,55,25)]
+perk <- perk[!c(perk$averageBackersRequired==Inf),]
+rm(path,temp)
+
+
+#create total table
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
+data <- read.csv(path, header = T)
+data$X <- NULL
+data <- data[!c(data$averageBackersRequired==Inf),]
+
+#add personal attribute to total table
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\personalSite.csv"
+temp <- read.csv(path, header = T)
+temp$X <- NULL
+
+
+data <- sqldf("select *
+from data left join temp on temp.url=data.url")
+
+data$url <- NULL
+data$url <- NULL
+
+#remove success to the end of table
+temp <- data$success
+data$success <- NULL
+data$success <- temp
+
+#select only relevant feature
+features <- c(names(perk)[1:ncol(perk)-1],names(project)[1:ncol(project)-1],names(user)[1:ncol(user)])
+userFeatures <- names(user)[1:ncol(user)-1]
+perkFeatures <- names(perk)[1:ncol(perk)-1]
+projectFeatures <- names(project)[1:ncol(project)-1]
+
+data[is.na(data$personal),"personal"] <- 0
+#screen data for only first projects or not
+#data <- data[(data$created!=1),]
+data <- data[,c(features)]
+
+
+rm(user,perk,project, path, temp)
+```
+
+
+#Step Backward (BIC & AIC)
+
+Create the steps excluding the entire set each time.
+Because we don't want to penalize for number of features we use AIC as well but we can see results are the same.
+
+```{r}
+string <- "success ~"
+for (j in 1:length(features)) {
+  if(j==1){
+    string <- paste(string,features[j])
+  }else{
+    string <- paste(string,"+",features[j])
+  }
+}
+
+lmFull  <- glm(formula= string , family = binomial(), data = data)
+
+#bic
+fullBIC <- AIC(lmFull, k=log(nrow(data)))
+fullAIC <- AIC(lmFull, k=2)
+
+bic <- vector()
+aic <- vector()
+
+#No perks
+current <- c(userFeatures,projectFeatures)
+string <- "success ~"
+for (j in 1:length(current)) {
+  if(j==1){
+    string <- paste(string,current[j])
+  }else{
+    string <- paste(string,"+",current[j])
+  }
+}
+lmPart  <- glm(string, family = binomial(), data = data)
+partBIC <- AIC(lmPart, k=log(nrow(data)))
+partAIC <- AIC(lmPart, k=2)
+bic[1] <- partBIC- fullBIC
+aic[1] <- partAIC- fullAIC
+
+#No user
+current <- c(perkFeatures,projectFeatures)
+string <- "success ~"
+for (j in 1:length(current)) {
+  if(j==1){
+    string <- paste(string,current[j])
+  }else{
+    string <- paste(string,"+",current[j])
+  }
+}
+lmPart  <- glm(string, family = binomial(), data = data)
+partBIC <- AIC(lmPart, k=log(nrow(data)))
+partAIC <- AIC(lmPart, k=2)
+bic[2] <- partBIC- fullBIC
+aic[2] <- partAIC- fullAIC
+
+
+#No project
+current <- c(userFeatures,perkFeatures)
+string <- "success ~"
+for (j in 1:length(current)) {
+  if(j==1){
+    string <- paste(string,current[j])
+  }else{
+    string <- paste(string,"+",current[j])
+  }
+}
+lmPart  <- glm(string, family = binomial(), data = data)
+partBIC <- AIC(lmPart, k=log(nrow(data)))
+partAIC <- AIC(lmPart, k=2)
+bic[3] <- partBIC- fullBIC
+aic[3] <- partAIC- fullAIC
+
+
+lables <- c("finance","entrepreneur", "pitch")
+
+#BIC plot
+res <- as.data.frame(cbind(lables,bic))
+res$bic <- as.numeric(as.character(res$bic))
+ggplot(res)+geom_bar(aes(x=reorder(lables, -bic), y=bic, fill="blue"), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+scale_fill_manual(values = c("#3690c0"))
+
+#AIC plot
+res2 <- as.data.frame(cbind(lables,aic))
+res2$aic <- as.numeric(as.character(res2$aic))
+ggplot(res2)+geom_bar(aes(x=reorder(lables, -aic), y=aic, fill="blue"), stat = "identity")+xlab("Excluded Features (from full model)")+ylab("AIC Difference (part-full)")+ggtitle("Step Backwards (AIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#3690c0"))
+
+rm(bic,res,res2,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC, aic, fullAIC, lables, partAIC)
+```
+
+#Step Forward (BIC & AIC)
+
+Create the steps including the entire set each time.
+Because we don't want to penalize for number of features we use AIC as well but we can see results are the same.
+Create pie charts as well to emphasize the difference between sets.
+
+```{r}
+lmEmpty <- glm(success ~ 1, family = binomial(), data = data)
+emptyBIC <- AIC(lmEmpty, k=log(nrow(data)))
+emptyAIC <- AIC(lmEmpty, k=2)
+
+
+features <- names(data)[1:ncol(data)-1]
+bic <- vector()
+aic <- vector()
+
+#only user
+current <- userFeatures
+string <- "success ~"
+for (j in 1:length(current)) {
+  if(j==1){
+    string <- paste(string,current[j])
+  }else{
+    string <- paste(string,"+",current[j])
+  }
+}
+lmPart  <- glm(string, family = binomial(), data = data)
+partBIC <- AIC(lmPart, k=log(nrow(data)))
+partAIC <- AIC(lmPart, k=2)
+bic[1] <- emptyBIC - partBIC
+aic[1] <- emptyAIC - partAIC
+
+
+#only perks
+current <- perkFeatures
+string <- "success ~"
+for (j in 1:length(current)) {
+  if(j==1){
+    string <- paste(string,current[j])
+  }else{
+    string <- paste(string,"+",current[j])
+  }
+}
+lmPart  <- glm(string, family = binomial(), data = data)
+partBIC <- AIC(lmPart, k=log(nrow(data)))
+partAIC <- AIC(lmPart, k=2)
+bic[2] <- emptyBIC - partBIC
+aic[2] <- emptyAIC - partAIC
+
+#only project
+current <- projectFeatures
+string <- "success ~"
+for (j in 1:length(current)) {
+  if(j==1){
+    string <- paste(string,current[j])
+  }else{
+    string <- paste(string,"+",current[j])
+  }
+}
+lmPart  <- glm(string, family = binomial(), data = data)
+partBIC <- AIC(lmPart, k=log(nrow(data)))
+partAIC <- AIC(lmPart, k=2)
+bic[3] <- emptyBIC - partBIC
+aic[3] <- emptyAIC - partAIC
+
+
+lables <- c("entrepreneur","finance", "pitch")
+
+res <- as.data.frame(cbind(lables,bic))
+res$bic <- as.numeric(as.character(res$bic))
+ggplot(res)+geom_bar(aes(x=reorder(lables, -bic), y=bic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
+
+
+res2 <- as.data.frame(cbind(lables,bic))
+colors <- c('rgb(216,179,101)', 'rgb(245,245,245)', 'rgb(90,180,172)')
+
+plot_ly(data, labels = ~lables, values = ~bic, type = 'pie',
+        textposition = 'inside',
+        textinfo = 'label+percent',
+        insidetextfont = list(color = '#000000'),
+        hoverinfo = 'text',
+        text = ~paste('$', bic, ' billions'),
+        marker = list(colors = colors,
+                      line = list(color = '#FFFFFF', width = 1)),
+                      #The 'pull' attribute can also be used to create space between the sectors
+        showlegend = FALSE) %>%
+  layout(title = 'BIC Difference % (From Total Difference) in Feature Sets',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         font=list(
+  family = "Arial",
+  size = 20,
+  color = 'Black'))
+
+
+
+res3 <- as.data.frame(cbind(lables,aic))
+res3$aic <- as.numeric(as.character(res3$aic))
+ggplot(res3)+geom_bar(aes(x=reorder(lables, -aic), y=aic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("AIC Difference (empty-part)")+ggtitle("Step Forward (AIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
+
+
+res4 <- as.data.frame(cbind(lables,aic))
+colors <- c('rgb(216,179,101)', 'rgb(158,154,200)', 'rgb(90,180,172)')
+colors <- c('rgb(158,154,200)', 'rgb(216,179,101)', 'rgb(90,180,172)')
+colors <- c('rgb(156,190,189)', 'rgb(210,203,108)', 'rgb(217,217,217)')
+
+
+
+plot_ly(data, labels = ~lables, values = ~aic, type = 'pie',
+        textposition = 'inside',
+        textinfo = 'label+percent',
+        insidetextfont = list(color = '#000000'),
+        hoverinfo = 'text',
+        text = ~paste('$', aic, ' billions'),
+        marker = list(colors = colors,
+                      line = list(color = '#FFFFFF', width = 1)),
+                      #The 'pull' attribute can also be used to create space between the sectors
+        showlegend = FALSE) %>%
+  layout(title = 'AIC Difference % (From Total Difference) in Feature Sets',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         font=list(
+  family = "Arial",
+  size = 20,
+  color = 'Black'))
+
+rm(bic,res,res2,res3,res4,emptyBIC,lmEmpty,features,current,string,j,lmPart,partBIC, aic, emptyAIC, lables, partAIC,colors, perkFeatures, projectFeatures, userFeatures)
+
+```
+
+
+#Correlation
+
+Create correlation plot using spearman correlation for monotonicity.
+This is in order to show sets have little correlation between them.
+
+```{r}
+
+corDat <- data[,1:(ncol(data))]
+res <- round(cor(corDat,method = c("spearman")),2)
+
+
+ggcorrplot(res,
+   outline.col = "white",
+   ggtheme = ggplot2::theme_gray,
+   colors = c("#6D9EC1", "white", "#E46726"),insig = "blank",lab = TRUE)
+
+
+```
+
