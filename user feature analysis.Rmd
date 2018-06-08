@@ -1,0 +1,760 @@
+---
+title: "User Feature Analysis"
+author: "Ofir Mizrahi"
+date: "2018 M05 5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+library(caTools)
+library(PerformanceAnalytics)
+library(Hmisc)
+library(corrplot)
+library(ggplot2)
+library(plotly)
+library(psych)
+library(reshape2)
+library(sqldf)
+library(MASS)
+library(grid)
+library(dplyr)
+library(knitr)
+library(car)
+```
+
+##########################################################
+understand we want to leave out numSuccessful, pastSuccessRate, created and maybe experience. Includes plots.
+##########################################################
+
+#numSuccessfulCampaigns and created Feature Analysis
+###Prepare Table
+Note: We took down the "country" and "city" from current user table as they contain too many values.
+      We took down "Comments" as well because they are not separated to comments on my projects and on other projects.
+      
+```{r prepare table}
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
+temp <- read.csv(path, header = T)
+temp$X <- NULL
+user <- temp[,c(1,12,14,16,23,25,33,35,37,48)]#add personal web
+
+rm(temp, path)
+```
+
+Add personal website attribute:
+
+```{r add personal website attribute}
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\personalSite.csv"
+temp <- read.csv(path, header = T)
+temp$X <- NULL
+
+
+user <- sqldf("select *
+from user left join temp on temp.url=user.url")
+
+user$url <- NULL
+user$url <- NULL
+
+#remove success to the end of table
+temp <- user$success
+user$success <- NULL
+user$success <- temp
+
+user$noFacebookFriends <- as.integer(user$noFacebookFriends)
+
+rm(temp,path)
+```
+
+###numSuccessfulCampaigns in the eyes of Logistic Regression
+
+The current attribute of "numSuccessfulCampaigns" can create a model with 99% accuracy as it includes the current project.
+If we use the rule: numSuccess=0 -> predict project fail, else -> predict success we will get 56%+41%=97% accuracy.
+
+```{r numSuccessfulCampaigns test, warning=FALSE}
+set.seed(01071989)
+sample  <- sample.split(seq(1:dim(user)[1]), SplitRatio = 0.7)
+train   <- subset(user, sample == TRUE)
+test    <- subset(user, sample == FALSE)
+rm(sample)
+
+lm  <- glm(success ~ numSuccessfulCampaigns, family = binomial(), data = train)
+
+#prediction from here
+lmPred   <- data.frame(test$success,responce=predict(lm, test, type='response'))
+
+lmPred$prediction <- ifelse(lmPred$responce > 0.5,1,0)
+
+rate <- sum(lmPred$test.success==lmPred$prediction)/dim(lmPred)[1]
+                                                                
+paste("Accuracy for the model of 'numSuccessfulCampaigns' is:",rate*100,"%")
+
+#show the different combos of success and numSuccessfulCampaigns
+res <- data.frame()
+
+successComb <- sqldf("select '1+' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=0 and numSuccessfulCampaigns!=0")
+
+res <- rbind(res,successComb)
+
+successComb <- sqldf("select '0' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=0 and numSuccessfulCampaigns=0")
+
+res <- rbind(res,successComb)
+
+successComb <- sqldf("select '1+' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=1 and numSuccessfulCampaigns!=0")
+
+res <- rbind(res,successComb)
+
+successComb <- sqldf("select '0' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=1 and numSuccessfulCampaigns=0")
+
+res <- rbind(res,successComb)
+
+kable(res, align = c('c','c','c'), col.names = c('Num Successful','Success', 'Percent (%)'), caption = "Combinations Percent")
+rm(lm,lmPred,successComb,test,train,res,rate)
+```
+
+
+Here we are updating the fields of "created" and "numSuccessfulCampagins" to exclude the current project.
+
+```{r updating numSuccessfulCampaigns and Created, warning=FALSE}
+user[is.na(user$personal),"personal"] <- 0 #fill in the nulls for users with no site at all.
+
+#change the values to be such that created is the number created up until the last project and the numSuccess is up until the last project (not including current)
+user$created <- user$created-1
+vec <- sqldf("select case when success==0 then numSuccessfulCampaigns else numSuccessfulCampaigns-1 end as numSuccessfulCampaigns
+from user")
+
+user$numSuccessfulCampaigns <- NULL
+user[,ncol(user)+1] <- vec
+
+
+#there are 4 campagins that were successful but canceled we will remove them as there is problem with thier data.
+user <- user[-c(761,1315,2887,3141),]
+
+#remove success to the end of table
+temp <- user$success
+user$success <- NULL
+user$success <- temp
+
+user$noFacebookFriends <- as.integer(user$noFacebookFriends)
+
+rm(vec,temp)
+```
+
+
+We will run the same code again and see accuracy goes down now. We can see it by the change in percentage between the different combinations.
+If we use the rule: numSuccess=0 -> predict project fail, else -> predict success we will get 56%+11%=67% accuracy.
+It happens because of the shift of 30% from (success=1,numSuccess>0) to (success=1,numSuccess=0) as now numSuccess is looking at previous projects and such combination is possible.
+
+If we run the model on "pastSuccessRate" feature we will see the same accuracy results which shows how the two are highly correlated because pastSuccess is calculated by (numOfSuccess(in the past)/created(in the past)) which is what our parameters represent now.
+
+```{r numSuccessfulCampaigns test2, warning=FALSE}
+set.seed(01071989)
+sample  <- sample.split(seq(1:dim(user)[1]), SplitRatio = 0.7)
+train   <- subset(user, sample == TRUE)
+test    <- subset(user, sample == FALSE)
+rm(sample)
+
+lm  <- glm(success ~ numSuccessfulCampaigns, family = binomial(), data = train)
+
+#prediction from here
+lmPred   <- data.frame(test$success,responce=predict(lm, test, type='response'))
+
+lmPred$prediction <- ifelse(lmPred$responce > 0.5,1,0)
+
+rate <- sum(lmPred$test.success==lmPred$prediction)/dim(lmPred)[1]
+                                                                
+paste("Accuracy for the model of 'numSuccessfulCampaigns' is:",rate*100,"%")
+
+
+
+#show the different combos of success and numSuccessfulCampaigns
+res <- data.frame()
+
+successComb <- sqldf("select '1+' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=0 and numSuccessfulCampaigns!=0")
+
+res <- rbind(res,successComb)
+
+successComb <- sqldf("select '0' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=0 and numSuccessfulCampaigns=0")
+
+res <- rbind(res,successComb)
+
+successComb <- sqldf("select '1+' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=1 and numSuccessfulCampaigns!=0")
+
+res <- rbind(res,successComb)
+
+successComb <- sqldf("select '0' as numSuccessfulCampaign, success, count(*)*100/3633 as percent
+from user
+where success=1 and numSuccessfulCampaigns=0")
+
+res <- rbind(res,successComb)
+
+kable(res, align = c('c','c','c'), col.names = c('Num Successful','Success', 'Percent (%)'), caption = "Combinations Percent")
+
+
+lm  <- glm(success ~ pastSuccessRate, family = binomial(), data = train)
+
+#prediction from here
+lmPred   <- data.frame(test$success,responce=predict(lm, test, type='response'))
+
+lmPred$prediction <- ifelse(lmPred$responce > 0.5,1,0)
+
+rate <- sum(lmPred$test.success==lmPred$prediction)/dim(lmPred)[1]
+
+paste("Accuracy for the model of 'pastSuccessRate' is:", rate*100,"%")
+
+rm(lm,lmPred,successComb,test,train,rate,res)
+```
+
+
+In the graphs we see the number of projects created against the number of success. One graph includes everything and the other includes points with only more than 10 users. The size of the dot indicated the number of users in that combination. We can see that creating many projects is indeed rare. Also, we can see users who have more than 50% success rate (it is more common as you create more projects)  
+
+```{r Past Successful Projects vs. Past Projects Created plot}
+query <- sqldf("
+      select created, numSuccessfulCampaigns, count(*) as amount
+      from user
+      group by created, numSuccessfulCampaigns")
+
+#exclude first projects
+query <- query[query$created!=0,]
+
+#create plots
+ggplot(data=query, aes(x=created, y=numSuccessfulCampaigns))+geom_point(aes(size=amount),show.legend = F) +geom_abline(aes(slope=1, intercept=0, color='#2ca25f'),size=1)+geom_abline(aes(slope=0.5, intercept=0,color='#e34a33'),size=1)+ylab("Num Successful Projects")+xlab("Num of Projects Created")+ggtitle("Past Successful Projects vs. Past Projects Created")+scale_colour_manual(name = 'Line Chart- Success Rate', values =c('#e34a33'='#e34a33','#2ca25f'='#2ca25f'), labels = c('100%','50%'))
+
+
+ggplot(data=query[query$amount>10,], aes(x=created, y=numSuccessfulCampaigns))+geom_point(aes(size=amount),show.legend = F) +geom_abline(aes(slope=1, intercept=0, color='#2ca25f'),size=1)+geom_abline(aes(slope=0.5, intercept=0,color='#e34a33'),size=1)+ylab("Num Successful Projects")+xlab("Num of Projects Created")+ggtitle("Past Successful Projects vs. Past Projects Created")+scale_colour_manual(name = 'Line Chart- Success Rate', values =c('#e34a33'='#e34a33','#2ca25f'='#2ca25f'), labels = c('100%','50%'))
+
+rm(query)
+```
+
+In order to create the second chart we wanted to have a sample of at least 30 projects in a group.
+Group 6 has 30 projects but from group 7 onward there are less.
+Hence, we need to join groups. One option is [1-6,7-8,9+] the other is [1-6,7+] which has been chosen.
+
+As we can see, the more projects we create the more successful we will be. At first we thought this can be easily explain by the fact that the users will not continue to use this platform for fundraising if they tend to fail. However, looking at the "past success" line, we can see that users that continued to the second project did not have a higher past success rate than group 1. We would expect the orange line to be much higher than the purple. This interestingly means that users decide to use kickstarter again not because they were successful but because of another motivation.
+
+Q: what is the pattern that keeps users going for another project? What makes them stop? Can we find specific attributes of users who create projects but always fail? how can we make users who succeeded in their first project continue to a second one?
+
+```{r Success Rate vs. Campaigns Created plot, warning=FALSE}
+#count combinations of creted and successful projects
+query <- sqldf("
+      select created, numSuccessfulCampaigns, count(*) as amount
+               from user
+               group by created, numSuccessfulCampaigns")
+
+#create measure of rate
+query <- mutate(query, rate=numSuccessfulCampaigns/created)
+
+#create a weighted average of rate for each amount of created
+query <- mutate(query, multiply= rate*amount)
+
+query <- sqldf("
+               select created, sum(multiply)/sum(amount) as average, sum(amount) as users
+               from query
+               group by created")
+
+#split into the bins [1-6,7+]
+query1 <- query[query$created<6,]
+query2 <- query[query$created>=6,]
+
+#deal with the 7+ table and create a weighted average for them
+query2 <- mutate(query2, multiply= average*users)
+
+query2 <- sqldf("
+                select 6 as created, sum(multiply)/sum(users) as average, sum(users) as users
+                from query2")
+
+#join 2 tables together
+query <- rbind(query1,query2)
+
+#create the bar chart of user amount as a ratio from all table
+totalUsers <- sum(query$users)
+
+query$usersRatio <- query$users/totalUsers
+
+#update values to match (here 1 represents including the current project)
+query$created <- query$created+1
+
+#calculate current success rate
+success <- sqldf("select created, count(*) as success
+                 from user
+                 where success=1
+                 group by created")
+
+total <- sqldf("select created, count(*) as total
+               from user
+               group by created")
+
+res <- merge(success, total, on= created)
+
+res <- mutate(res, rate= success/total)
+
+#work on the 7+ table
+query1 <- res[res$created<6,]
+query2 <- res[res$created>=6,]
+
+query1$success <- NULL
+query1$total <- NULL
+
+query2 <- sqldf("select 6 as created, sum(total*rate)/sum(total) as rate
+                from query2")
+
+#join tables
+res <- rbind(query1, query2)
+
+#update create to include current project
+res$created <- res$created+1
+
+#create plot
+ggplot(data=query)+geom_bar(aes(x=created, y=usersRatio, fill='#80cdc1'), stat = "identity")+ geom_line(aes(x=created, y=average,color='#d95f02'), size=1.3)+ geom_line(data=res, aes(x=created, y=rate,color='#7570b3'), size= 1.3)+scale_x_discrete(limit= c("1","2","3","4","5","6","7+"))+ylab("Ratio")+xlab("Number of Projects Created")+scale_colour_manual(name = 'Line Chart- Success Rate', values =c('#d95f02'='#d95f02','#7570b3'='#7570b3'), labels = c('Current Campgain','Past Campaigns'))+ggtitle("Success Rate vs. Campaigns Created")+scale_fill_identity(name = 'Bar Chart', guide = 'legend',labels = c('User Amount'))
+
+rm(query,query1,query2,res,success,total,totalUsers,user)
+```
+
+As of the following, we can see it is not very intelegent to predict based on the feature of "numSuccessfulCampaigns" or "pastSuccessRate" nor is it for "created". As we just saw in the plots- "created" indicates higher success rate which can easily predict that if a user already created a project he is much likely to succeed oposed to users with thier first project.
+Therefore, we will create a prediction screening only users on thier first project. Hence there is no need for the three features.
+
+If we are not using "created" but we do use "experience"- how much does experience affect?: more experience> better chance you created many projects>better chance current project is success. As we screen to predict only projects that are first we can emphasis how much does the experience effect.
+However, we would like to see it statisticaly 
+
+#Time and Project Experience Influencing with Success
+###Load Data
+
+Load data relevant to the next plots
+
+```{r,include=FALSE}
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
+temp <- read.csv(path, header = T)
+temp$X <- NULL
+
+user <- temp[,c("url","backed", "created", "experience", "success", "numSuccessfulCampaigns")]
+
+#change the values to be such that created is the number created up until the last project and the numSuccess is up until the last project (not including current)
+user$created <- user$created-1
+vec <- sqldf("select case when success==0 then numSuccessfulCampaigns else numSuccessfulCampaigns-1 end as numSuccessfulCampaigns
+from user")
+
+user$numSuccessfulCampaigns <- NULL
+user[,ncol(user)+1] <- vec
+
+
+#there are 4 campagins that were successful but canceled we will remove them as there is problem with thier data.
+user <- user[-c(761,1315,2887,3141),]
+
+rm(temp,vec,path)
+
+```
+
+###User Yearly Experience
+
+Create a plot for users over 1 year on site:
+
+In this plot we can see the longer the user time in kickstarter, the better chances he will succeed in his current project and the better chances he created more projects. Therefore- we can't know wheter the improvement in succcess is happening as a result of project experience or of time on site.
+
+We can also  assume generality from our dataset and say that in each month we will sample, most users creating a project will be new users. It does not point on site growth, it points that the older the user- the less chance he will have creating a new project.
+
+```{r user yearly experience plot}
+#create interval by years (360 days)
+x <- c(-Inf, seq(360, max(user$experience),360), Inf)
+user$years <- cut(user$experience, x, labels=0:(length(x)-2))
+
+#plot includes current project
+user$created <- user$created+1
+
+#create table for plot
+res <- sqldf("select years, avg(created) as avgCreated, avg(success) as successRate, count(*) as amount
+from user
+group by years")
+
+#remove users withour 1 year in kick
+res <- res[-1,]
+
+#plot the 3 graphs
+plot1 <- ggplot(data= res)+geom_bar(aes(x=years, y=amount), stat = "identity")+ylab("Amount of Users") + theme_minimal() + theme(axis.title.x = element_blank())+ggtitle("User Yearly Experience")
+plot2 <- ggplot(data= res)+geom_line(aes(x=years, y=avgCreated, group = 1),size = 1.5, alpha = 0.75)+ylab("Average Created (inc. current)") + theme_minimal() + theme(axis.title.x = element_blank())+geom_abline(slope=0, intercept=mean(res$avgCreated), size = 0.5, alpha = 0.5)
+plot3 <- ggplot(data= res)+geom_line(aes(x=years, y=successRate, group = 1),size = 1.5, alpha = 0.75)+ylab("Current Project Success") + theme_minimal()+geom_abline(slope=0, intercept=mean(res$successRate), size = 0.5, alpha = 0.5)+xlab("Years")
+
+#merge them into 1
+grid.newpage()
+grid.draw(rbind(ggplotGrob(plot1), ggplotGrob(plot2), ggplotGrob(plot3), size = "last"))
+
+rm(plot1,plot2,plot3,res,x)
+```
+
+###First Year User Experience
+
+Create a plot for users in their fisrt year on site (by month):
+We want to take a closer look at users in thier first year as we guess they will defer greatly as well.
+Viewing the plot we can see almost all users creating a project in their first year are doing it not even a month since registering and that the success rate for these users are the lowest. Such case might even emphasis more that there influence of time on site and not just experience by projects.
+
+```{r first year user experience plot}
+#create bins by months
+x <- c(-Inf, seq(30, 360,30), Inf)
+user$months <- cut(user$experience, x, labels=0:(length(x)-2))
+user$months <- as.integer(as.character(user$months))
+
+#screen out users over 1 year
+firstYear <- user[user$months<12,]
+
+#create table for plot
+res <- sqldf("select months, avg(created) as avgCreated, avg(success) as successRate, count(*) as amount
+             from firstYear
+             group by months")
+
+#plot the 3 graphs
+plot1 <- ggplot(data= res)+geom_bar(aes(x=months, y=amount), stat = "identity")+ylab("Amount of Users") + theme_minimal() + theme(axis.title.x = element_blank())+ggtitle("First Year User Experience")+scale_x_discrete(limit= 0:11)
+plot2 <- ggplot(data= res)+geom_line(aes(x=months, y=avgCreated, group = 1),size = 1.5, alpha = 0.75)+ylab("Average Campaigns Created") + theme_minimal() + theme(axis.title.x = element_blank())+scale_x_discrete(limit= 0:11)+geom_abline(slope=0, intercept=mean(res$avgCreated), size = 0.5, alpha = 0.5)
+plot3 <- ggplot(data= res)+geom_line(aes(x=months, y=successRate, group = 1),size = 1.5, alpha = 0.75)+ylab("Current Campaign Success") + theme_minimal()+xlab("Months")+scale_x_discrete(limit= 0:11)+geom_abline(slope=0, intercept=mean(res$successRate), size = 0.5, alpha = 0.5)
+
+#merge them into 1
+grid.newpage()
+grid.draw(rbind(ggplotGrob(plot1), ggplotGrob(plot2), ggplotGrob(plot3), size = "last"))
+
+rm(plot1,plot2,plot3,res,x)
+
+```
+
+Division into rougher bins for fisrt year users to reduce noise (in months: [0,1-5,6-11]):
+In order to understand and see a clear trend and due to the fact that groups are small, we will combine the groups into 3-
+1. The most segnificant group of users in thier first month.
+2. users who are on site between a month and up to 6.
+6. users who are on site between 6 and up to 12 months.
+
+we can see the same trend as we saw in the plot per years.
+
+```{r division to bigger bins}
+
+#create bins by months
+x <- c(-Inf, 0, 5, 11)
+firstYear$bins <- cut(firstYear$months, x, labels=c("first month", "first half year", "last half year"))
+
+
+#create table for plot
+res <- sqldf("select bins, avg(created) as avgCreated, avg(success) as successRate, count(*) as amount
+             from firstYear
+             group by bins")
+
+#plot the 3 graphs
+plot1 <- ggplot(data= res)+geom_bar(aes(x=bins, y=amount), stat = "identity")+ylab("Amount of Users") + theme_minimal() + theme(axis.title.x = element_blank())+ggtitle("First Year User Experience")
+plot2 <- ggplot(data= res)+geom_line(aes(x=bins, y=avgCreated, group = 1),size = 1.5, alpha = 0.75)+ylab("Average Campaigns Created") + theme_minimal() + theme(axis.title.x = element_blank())+geom_abline(slope=0, intercept=mean(res$avgCreated), size = 0.5, alpha = 0.5)
+plot3 <- ggplot(data= res)+geom_line(aes(x=bins, y=successRate, group = 1),size = 1.5, alpha = 0.75)+ylab("Current Campaign Success") + theme_minimal()+xlab("Year Range")+geom_abline(slope=0, intercept=mean(res$successRate), size = 0.5, alpha = 0.5)
+
+#merge them into 1
+grid.newpage()
+grid.draw(rbind(ggplotGrob(plot1), ggplotGrob(plot2), ggplotGrob(plot3), size = "last"))
+
+rm(plot1,plot2,plot3,res,x, firstYear)
+```
+
+
+###Relationship Between Time and Projects Created to Success
+
+Note: plot will not include years 6 and 7 as thier sample size will create only 1 observation (which can not make a line plot). We can create a plot with years 6 and 7 if we split by created [1,2,3] and not by amout size.
+
+First I tried to create the plot elegantly with a loop however I could not manage to create a different color for each line and a proper legend. Therefore I did it the sisyphean way. code is added here as comments.
+
+```{r eval=FALSE, include=FALSE}
+# #turn factor to int so we could grab the max number of years for the loop condition.
+# user$years <- as.integer(as.character(user$years))
+# 
+# #create vector of colors for plot
+# colors <- c(
+#   "#9ebcda",
+#   "#8c96c6",
+#   "#8c6bb1",
+#   "#88419d",
+#   "#6e016b",
+#   "#4d004b")
+# 
+# #initiate plot
+# plot <- ggplot()
+# 
+# #originaly: for(i in 0:max(user$years))
+# for(i in 0:5){
+#   #select current year
+#   curYear <- user[user$years==i,]
+#   
+#   #extract information needed for plot
+#   query <- sqldf("select created, avg(success) as rate, count(*) as amount
+#       from curYear
+#       group by created")
+#   
+#   #split query to 2 groups from the first entry including below 30 projects
+#   split <- min(which(query$amount<30))
+#   q1 <- query[1:split-1,]
+#   q2 <- query[split:nrow(query),]
+#   
+#   #calculate weighted rate for q2 as they will join into 1 entry
+#   q2 <- mutate(q2, multiplyRate=amount*rate)
+#   q2 <- mutate(q2, multiplyCreated=amount*created)
+#   
+#   q2 <- sqldf("select min(created) as created, sum(multiplyRate)/sum(amount) as rate, sum(multiplyCreated)/sum(amount) as avgCreated
+#       from q2")
+#   
+#   #set q1 to match structure of q2
+#   q1$amount <- NULL
+#   q1 <- mutate(q1, avgCreated= created)
+#   
+#   #join q1+q2
+#   query <- as.data.frame(rbind(q1,q2))
+#   
+#   #add current line plot to the others
+#   plot <- plot +geom_line(data= query, aes(x=created, y=rate, group = 1,color=colors[i+1]), size=1)
+# }
+# 
+# rm(colors, plot, i, split, q1,q2,query,curYear)
+
+```
+
+In the graph we can see clearly that within each year the experience gained from creating projects influences success.
+Moreover, in-between years we can see that the time on site also influences success. For different years and the same amount of projects success raises as the user is more time on site.
+
+Q1:Another thing interesting to find is the connection of "backed" and "comments" to to time and success. Will we see a more significant influence between "backed" and "success"? same for comments? because the fact that a user is registered for a long time does not mean he was involved in the site though currently we do assume so.
+
+Q2:Somehow, year 1 is out of pattern. We still could not understand why might that be.
+
+
+```{r years plot 1}
+
+#data frame to contain all data needed for the plot. each plot will be for a different year
+res <- data.frame()
+
+for(i in 0:5){
+  #select current year
+  curYear <- user[user$years==i,]
+  
+  #extract information needed for plot
+  query <- sqldf("select years, created, avg(success) as rate, count(*) as amount
+      from curYear
+      group by created")
+  
+  #split query to 2 groups from the first entry including below 30 projects
+  split <- min(which(query$amount<30))
+  q1 <- query[1:split-1,]
+  q2 <- query[split:nrow(query),]
+  
+  #calculate weighted rate for q2 as they will join into 1 entry
+  q2 <- mutate(q2, multiplyRate=amount*rate)
+  q2 <- mutate(q2, multiplyCreated=amount*created)
+  
+  q2 <- sqldf("select years, min(created) as created, sum(multiplyRate)/sum(amount) as rate, sum(multiplyCreated)/sum(amount) as avgCreated
+      from q2")
+  
+  #set q1 to match structure of q2
+  q1$amount <- NULL
+  q1 <- mutate(q1, avgCreated= created)
+  
+  #join q1+q2
+  query <- as.data.frame(rbind(q1,q2))
+  
+  res <- rbind(res,query)
+}
+
+#create vector of colors for plot
+colors <- c(
+  "#9ebcda",
+  "#8c96c6",
+  "#8c6bb1",
+  "#88419d",
+  "#6e016b",
+  "#4d004b")
+
+ggplot()+geom_line(data= res[res$years==0,], aes(x=created, y=rate, group = 1,color=colors[6]), size=2)+
+  geom_line(data= res[res$years==1,], aes(x=created, y=rate, group = 1,color=colors[5]), size=2)+
+  geom_line(data= res[res$years==2,], aes(x=created, y=rate, group = 1,color=colors[4]), size=2)+
+  geom_line(data= res[res$years==3,], aes(x=created, y=rate, group = 1,color=colors[3]), size=2)+
+  geom_line(data= res[res$years==4,], aes(x=created, y=rate, group = 1,color=colors[2]), size=2)+
+  geom_line(data= res[res$years==5,], aes(x=created, y=rate, group = 1,color=colors[1]), size=2)+
+  geom_point(data= res[res$years==0,], aes(x=created, y=rate, group = 1,color=colors[6]), size=4)+
+  geom_point(data= res[res$years==1,], aes(x=created, y=rate, group = 1,color=colors[5]), size=4)+
+  geom_point(data= res[res$years==2,], aes(x=created, y=rate, group = 1,color=colors[4]), size=4)+
+  geom_point(data= res[res$years==3,], aes(x=created, y=rate, group = 1,color=colors[3]), size=4)+
+  geom_point(data= res[res$years==4,], aes(x=created, y=rate, group = 1,color=colors[2]), size=4)+
+  geom_point(data= res[res$years==5,], aes(x=created, y=rate, group = 1,color=colors[1]), size=4)+
+  scale_colour_manual(name = 'Years', values = c("#9ebcda","#8c96c6","#8c6bb1","#88419d","#6e016b","#4d004b"),
+                      labels = c("0","1","2","3","4","5"))+scale_x_discrete(limit= c("1","2","3+"))+xlab("Projects Created")+ylab("Current Project Success Rate")+ggtitle("Effect of Seniority (Years) & # Projects on Success Rate")+theme(text = element_text(size=20),title =element_text(colour="black",face="bold"))
+
+
+
+rm(curYear,q1,q2,query,i,split)
+```
+
+In the obove graph we can see the last group of projects created (x axis) is 3+.
+As said before, such is in order that we will have a significant sample size (over 30) in each group.
+In the following graph we ploted the same data however now the x axis is continues and represents the average number of created projects for each group.
+Here we can note the slope as well. We can see that in early and later years [0,4,5] the influence of projects experience does not effect the success as much as middle years [2,3], meaning- the success rate the user has is due to time on site and he will not gain much more success by creating more projects. Is such a correct assumption? no. statistically we proved that there is no interaction between the two.
+
+
+```{r years plot 2}
+
+ggplot()+geom_line(data= res[res$years==0,], aes(x=avgCreated, y=rate, group = 1,color=colors[6]), size=1)+
+  geom_line(data= res[res$years==1,], aes(x=avgCreated, y=rate, group = 1,color=colors[5]), size=1)+
+  geom_line(data= res[res$years==2,], aes(x=avgCreated, y=rate, group = 1,color=colors[4]), size=1)+
+  geom_line(data= res[res$years==3,], aes(x=avgCreated, y=rate, group = 1,color=colors[3]), size=1)+
+  geom_line(data= res[res$years==4,], aes(x=avgCreated, y=rate, group = 1,color=colors[2]), size=1)+
+  geom_line(data= res[res$years==5,], aes(x=avgCreated, y=rate, group = 1,color=colors[1]), size=1)+
+  geom_point(data= res[res$years==0,], aes(x=avgCreated, y=rate, group = 1,color=colors[6]), size=3)+
+  geom_point(data= res[res$years==1,], aes(x=avgCreated, y=rate, group = 1,color=colors[5]), size=3)+
+  geom_point(data= res[res$years==2,], aes(x=avgCreated, y=rate, group = 1,color=colors[4]), size=3)+
+  geom_point(data= res[res$years==3,], aes(x=avgCreated, y=rate, group = 1,color=colors[3]), size=3)+
+  geom_point(data= res[res$years==4,], aes(x=avgCreated, y=rate, group = 1,color=colors[2]), size=3)+
+  geom_point(data= res[res$years==5,], aes(x=avgCreated, y=rate, group = 1,color=colors[1]), size=3)+
+  scale_colour_manual(name = 'Years', values = c("#9ebcda","#8c96c6","#8c6bb1","#88419d","#6e016b","#4d004b"),
+                      labels = c("0","1","2","3","4","5"))+xlab("Average Projects Created")+ylab("Current Project Success Rate")+ggtitle("Relationship Between Time and Projects Created to Success")
+
+rm(res, colors)
+```
+
+#Statistical test for Interaction between Years and Created
+
+the year does not create a change in creation rate. can we say experience is more important than creating?
+
+```{r}
+yf <- glm(success~created*years, data = user, family = binomial())
+yr <- glm(success~created+years, data = user, family = binomial())
+```
+
+We create an LRT test between both models to see if the interaction is segnificant, we can see p-val is 0.13 which means the experience from creating projects is always the same no matter the year, creating an ireplacable experience.
+
+```{r}
+anova(yf,yr,test="Chi")
+```
+
+Over the model with no interaction we create an LRT test to find the significance of each feature over the others and we see they are both needed.
+
+```{r}
+#calculating LR test (-2(ln(theta model 1)-ln(theta model 2))) ~ chi by wilks
+Anova(yr)
+rm(yr,yf)
+```
+
+
+#Plot for "Backed" Instead of "Created""
+Grouping by backed is hard and not so clear as years are. To find the right cuts we user a histogram as well as checking the number of samples in each group.
+
+Note: each point in the plot has over 30 samples. The last point for each line is describing that the group created over that niber of projects (e.g. the last poing for the first group is 4, this point describes users creating 4 projects and above)
+
+
+```{r}
+
+hist(user[user$backed<20,"backed"])
+
+#create interval by backed 
+user$backedInterval <- cut(user$backed, c(-Inf,0, 1,20,50,100,Inf), labels = c(0:5))
+
+#data frame to contain all data needed for the plot. each plot will be for a different year
+res <- data.frame()
+
+for(i in 0:5){
+  #select current backedInterval
+  curBacked <- user[user$backedInterval==i,]
+  
+  #extract information needed for plot
+  query <- sqldf("select backedInterval, created, avg(success) as rate, count(*) as amount
+      from curBacked
+      group by created")
+  
+  #split query to 2 groups from the first entry including below 30 projects
+  split <- min(which(query$amount<30))
+  q1 <- query[1:split-1,]
+  q2 <- query[split:nrow(query),]
+  
+  #calculate weighted rate for q2 as they will join into 1 entry
+  q2 <- mutate(q2, multiplyRate=amount*rate)
+  q2 <- mutate(q2, multiplyCreated=amount*created)
+  
+  q2 <- sqldf("select backedInterval, min(created) as created, sum(multiplyRate)/sum(amount) as rate, sum(multiplyCreated)/sum(amount) as avgCreated
+      from q2")
+  
+  #set q1 to match structure of q2
+  q1$amount <- NULL
+  q1 <- mutate(q1, avgCreated= created)
+  
+  #join q1+q2
+  query <- as.data.frame(rbind(q1,q2))
+  
+  res <- rbind(res,query)
+}
+
+#create vector of colors for plot
+colors <- c(
+  "#9ebcda",
+  "#8c96c6",
+  "#8c6bb1",
+  "#88419d",
+  "#6e016b",
+  "#4d004b")
+
+ggplot()+geom_line(data= res[res$backedInterval==0,], aes(x=created, y=rate, group = 1,color=colors[6]), size=2)+
+  geom_line(data= res[res$backedInterval==1,], aes(x=created, y=rate, group = 1,color=colors[5]), size=2)+
+  geom_line(data= res[res$backedInterval==2,], aes(x=created, y=rate, group = 1,color=colors[4]), size=2)+
+  geom_line(data= res[res$backedInterval==3,], aes(x=created, y=rate, group = 1,color=colors[3]), size=2)+
+  geom_line(data= res[res$backedInterval==4,], aes(x=created, y=rate, group = 1,color=colors[2]), size=2)+
+  geom_line(data= res[res$backedInterval==5,], aes(x=created, y=rate, group = 1,color=colors[1]), size=2)+
+  geom_point(data= res[res$backedInterval==0,], aes(x=created, y=rate, group = 1,color=colors[6]), size=4)+
+  geom_point(data= res[res$backedInterval==1,], aes(x=created, y=rate, group = 1,color=colors[5]), size=4)+
+  geom_point(data= res[res$backedInterval==2,], aes(x=created, y=rate, group = 1,color=colors[4]), size=4)+
+  geom_point(data= res[res$backedInterval==3,], aes(x=created, y=rate, group = 1,color=colors[3]), size=4)+
+  geom_point(data= res[res$backedInterval==4,], aes(x=created, y=rate, group = 1,color=colors[2]), size=4)+
+  geom_point(data= res[res$backedInterval==5,], aes(x=created, y=rate, group = 1,color=colors[1]), size=4)+
+  scale_colour_manual(name = 'Projects Backed', values = c("#9ebcda","#8c96c6","#8c6bb1","#88419d","#6e016b","#4d004b"),
+                      labels = c("0","1","(2,20]","(20,50]","(50,100]","100+"))+xlab("Projects Created")+ylab("Current Project Success Rate")+ggtitle("Effect of Backing Projects & # Projects on Success Rate")+theme(text = element_text(size=20),title =element_text(colour="black",face="bold"))
+
+
+
+rm(curBacked,q1,q2,query,res,colors,i,split)
+
+
+```
+
+#Statistical Test for Interaction between Backed and Created
+
+```{r}
+yf <- glm(success~created*backedInterval, data = user, family = binomial())
+yr <- glm(success~created+backedInterval, data = user, family = binomial())
+
+```
+
+We create an LRT test between both models to see if the interaction is segnificant, we can see p-val is 0.54 which means the experience from creating projects is always the same no matter the amout of projects backed, creating an ireplacable experience.
+
+```{r}
+anova(yf,yr,test="Chi")
+```
+
+Over the model with no interaction we create an LRT test to find the significance of each feature over the others and we see they are both needed.
+
+```{r}
+Anova(yr)
+
+rm(yf,yr)
+```
+
+
+#Finding the Best Model
+
+We want to find if years or backed is a better model.
+We can compare models only with BIC measure and not statisticaly.
+From the results we can see the if we do not split backed into bins "years" and "backed" are more or less the same.
+However, spliting "backed" into bins created a better model for prediction than "years".
+
+```{r}
+yrYears <- glm(success~created+years, data = user, family = binomial())
+yrbackedInterval <- glm(success~created+backedInterval, data = user, family = binomial())
+yrBacked <- glm(success~created+backed, data = user, family = binomial())
+BIC(yrYears)
+BIC(yrbackedInterval)
+BIC(yrBacked)
+```
+
