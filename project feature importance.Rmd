@@ -1,30 +1,26 @@
 ---
-title: "User Feature Importance"
+title: "Project Feature Importance"
 author: "Ofir Mizrahi"
 date: "2018 M05 24"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(echo = T, warning = F)
 library(sqldf)
 library(ggplot2)
 ```
 
-#########################################################
-understanding the top features by bic and acc
-#########################################################
-
-
 ##Load Data
 
-We are loading only users with thier first project. Also, "personal" attribute is set as binary as results were better with it (instead of it being ordinal).
+We are loading only projects with thier first project. Also, "personal" attribute is set as binary as results were better with it (instead of it being ordinal).
 
 ```{r}
-path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\userBinaryWeb.csv"
-user <- read.csv(path, header = T)
-user$X <- NULL
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\projectBinaryWeb.csv"
+project <- read.csv(path, header = T)
+project$X <- NULL
 
+project <- project[,c(4:10,17)]
 rm(path)
 ```
 
@@ -32,7 +28,7 @@ rm(path)
 ##Feature Importance for BIC
 ###Backward Step
 
-Let's create a model with all features (backed + facebookFriends + continent + noFacebookFriends + personal) and then remove one of them and see how it affects the BIC measure.
+Let's create a model with all features and then remove one of them and see how it affects the BIC measure.
 
 We are using BIC meausure as there is not need to optimaize any parameter (such as threshold) as well as taking into conciderations the number of variables in the model.
 
@@ -40,22 +36,31 @@ The calculation done is part model BIC minus full model BIC. As we want to minim
 a positive result, means adding the excluded feature to create the full model was creating a better model.
 a negative result, means adding the excluded feature to create the full model was not needed and created a worst model.
 
-We can see that "personal" was the most important feature which notes which users have a personal site. Such feature might show a user who is already consolidated with his project, has goals and maybe some products running. Shows seriousness.
+The commentary on the plot is pretty stright forward.
 
-Another highly important variable is the "backed" feature
-Q: Due to the past plots and analysis done we raised a question of whether the influence on success is due to time on site (experience) or due to "hidden" variables of involvment on site such as "backed" and "comments" (which is not used here currently). Such result hints the answer is yes. As experience turned out not to be important while having backed in the model.
+Q:We will note that "numUpdates" is unbelievably high in all plots which makes me suspect something is wrong here, or- maybe it is very important. We'll have to look into that.
 
-Continent is the least segnificant feature and only "hurts" the model. This is a good thing implying that the site is indeed globlized and success is not affected by location.
-
+The sites were not very segnificant here though this might be due to the lack of value in most projects for them.
 
 ```{r Backward Step}
-lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + personal, family = binomial(), data = user)
+
+features <- names(project)[1:ncol(project)-1]
+
+string <- "success ~"
+for (j in 1:length(features)) {
+  if(j==1){
+    string <- paste(string,features[j])
+  }else{
+    string <- paste(string,"+",features[j])
+  }
+}
+
+lmFull  <- glm(formula= string , family = binomial(), data = project)
+
 
 #bic
-fullBIC <- AIC(lmFull, k=log(nrow(user)))
-# fullRAdj <- summary(lmFull)$adj.r.squared 
+fullBIC <- AIC(lmFull, k=log(nrow(project)))
 
-features <- names(user)[1:ncol(user)-1]
 bic <- vector()
 for (i in 1:length(features)) {
   current <- features[-i]
@@ -67,16 +72,18 @@ for (i in 1:length(features)) {
       string <- paste(string,"+",current[j])
     }
   }
-  lmPart  <- glm(string, family = binomial(), data = user)
-  partBIC <- AIC(lmPart, k=log(nrow(user)))
+  lmPart  <- glm(string, family = binomial(), data = project)
+  partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- partBIC- fullBIC
 }
 
+features <- c("num. words", "main video", "num. additional videos", "num. images", "view gallery", "estimated delivery time", "shipping spread" )
 res <- as.data.frame(cbind(features,bic))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")
+ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic, fill="blue"), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+scale_fill_manual(values = c("#3690c0"))
 
-rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC)
+
+#rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC)
 
 ```
 
@@ -89,31 +96,32 @@ The calculation done is empty model BIC minus part model BIC. As we want to mini
 a positive result, means adding the excluded feature to create the full model was creating a better model.
 a negative result, means adding the excluded feature to create the full model was not needed and created a worst model.
 
-In this plot we can again see the past discussed question about "backed" and "experience" and we can see that now when experience is the only variable in the model it has a major effect (second to "experience"backed). Experience holds within information that backed has.
-
-Social network seems to be of an importance here- as oposed to the last plot- though only minor.
+Steps forward is always somwhat more revealing. Here we can see that features such as "numImages" and "totWordCount" that were rankes very low in the steps backwards plot are now ranked very high.
 
 
 ```{r Forward step}
-lmEmpty <- glm(success ~ 1, family = binomial(), data = user)
-emptyBIC <- AIC(lmEmpty, k=log(nrow(user)))
+lmEmpty <- glm(success ~ 1, family = binomial(), data = project)
+emptyBIC <- AIC(lmEmpty, k=log(nrow(project)))
 
 
-features <- names(user)[1:ncol(user)-1]
+features <- names(project)[1:ncol(project)-1]
 bic <- vector()
 for (i in 1:length(features)) {
   current <- features[i]
   string <- paste("success ~",current)
-  lmPart  <- glm(string, family = binomial(), data = user)
-  partBIC <- AIC(lmPart, k=log(nrow(user)))
+  lmPart  <- glm(string, family = binomial(), data = project)
+  partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- emptyBIC - partBIC 
 }
 
+features <- c("num. words", "main video", "num. additional videos", "num. images", "view gallery", "estimated delivery time", "shipping spread" )
 res <- as.data.frame(cbind(features,bic))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")
+ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+scale_fill_manual(values = c("#ec7014"))
 
-rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
+
+#rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
 ```
 
 ##Feature Importance for Accuracy (prediction)
@@ -125,9 +133,7 @@ Such has been done for any result given from any model in this section (empty/pa
 ```{r K folds}
 k <- 10
 set.seed(01071989)
-folds <- sample(k, nrow(user),replace=T)#sample random group number for each row
-
-rm(k)
+folds <- sample(k, nrow(project),replace=T)#sample random group number for each row
 ```
 
 ###Backward Step
@@ -145,12 +151,23 @@ accuracy <- c()
 # precision <- c()
 
 
-for (i in 1:10) {
+features <- names(project)[1:ncol(project)-1]
+
+string <- "success ~"
+for (j in 1:length(features)) {
+  if(j==1){
+    string <- paste(string,features[j])
+  }else{
+    string <- paste(string,"+",features[j])
+  }
+}
+
+for (i in 1:k) {
   
-  train   <- user[folds!=i,]
-  test   <- user[folds==i,]
+  train   <- project[folds!=i,]
+  test   <- project[folds==i,]
   
-  lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + personal, family = binomial(), data = train)
+  lmFull  <- glm(formula= string, family = binomial(), data = train)
   
   #prediction from here
   lmPred   <- data.frame(test$success,responce=predict(lmFull, test, type='response'))
@@ -170,7 +187,7 @@ accFull <- mean(accuracy)
 # preFull <- mean(precision)
 
 
-features <- names(user)[1:ncol(user)-1]
+features <- names(project)[1:ncol(project)-1]
 runsAcc <- vector()
 # runsRec <- vector()
 # runsPre <- vector()
@@ -192,8 +209,8 @@ for (i in 1:length(features)) {
   
   for (j in 1:10) {
     
-    train   <- user[folds!=j,]
-    test   <- user[folds==j,]
+    train   <- project[folds!=j,]
+    test   <- project[folds==j,]
     
     lmPart  <- glm(string, family = binomial(), data = train)
     
@@ -219,7 +236,7 @@ for (i in 1:length(features)) {
 
 res <- as.data.frame(cbind(features,runsAcc))
 res$runsAcc <- as.numeric(as.character(res$runsAcc))
-ggplot(res)+geom_bar(aes(x=reorder(features, -runsAcc), y=runsAcc), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("Accuracy Difference (full-part)")+ggtitle("Step Backwards (ACC)")
+ggplot(res)+geom_bar(aes(x=reorder(features, -runsAcc), y=runsAcc), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("Accuracy Difference (full-part)")+ggtitle("Step Backwards (ACC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # res <- as.data.frame(cbind(features,runsRec))
 # res$runsRec <- as.numeric(as.character(res$runsRec))
@@ -237,18 +254,20 @@ rm(lmFull,lmPart,lmPred,res,test,train,accFull,accuracy,conf_mat,current,feature
 
 Same idea as above.
 
+"personal" somewhat acts weird just as in the user feature importace plots. It's ranked high in the BIC case and lowest in the ACC case.
+
 ```{r Forward step acc}
 #run selected model on the 10 test sets to recieve an average of measures
 accuracy <- c()
 # recall <- c()
 # precision <- c()
 
-for (i in 1:10) {
+for (i in 1:k) {
   
-  train   <- user[folds!=i,]
-  test   <- user[folds==i,]
+  train   <- project[folds!=i,]
+  test   <- project[folds==i,]
   
-lmEmpty <- glm(success ~ 1, family = binomial(), data = user)  
+  lmEmpty <- glm(success ~ 1, family = binomial(), data = project)  
   #prediction from here
   lmPred   <- data.frame(test$success,responce=predict(lmEmpty, test, type='response'))
   
@@ -267,7 +286,7 @@ accEmpty <- mean(accuracy)
 # preEmpty <- mean(precision)
 
 
-features <- names(user)[1:ncol(user)-1]
+features <- names(project)[1:ncol(project)-1]
 runsAcc <- vector()
 # runsRec <- vector()
 # runsPre <- vector()
@@ -282,8 +301,8 @@ for (i in 1:length(features)) {
   
   for (j in 1:10) {
     
-    train   <- user[folds!=j,]
-    test   <- user[folds==j,]
+    train   <- project[folds!=j,]
+    test   <- project[folds==j,]
     
     lmPart  <- glm(string, family = binomial(), data = train)
     
@@ -309,7 +328,7 @@ for (i in 1:length(features)) {
 
 res <- as.data.frame(cbind(features,runsAcc))
 res$runsAcc <- as.numeric(as.character(res$runsAcc))
-ggplot(res)+geom_bar(aes(x=reorder(features, -runsAcc), y=runsAcc), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("Accuracy Difference (part-empty)")+ggtitle("Step Forward (ACC)")
+ggplot(res)+geom_bar(aes(x=reorder(features, -runsAcc), y=runsAcc), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("Accuracy Difference (part-empty)")+ggtitle("Step Forward (ACC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 # res <- as.data.frame(cbind(features,runsRec))
 # res$runsRec <- as.numeric(as.character(res$runsRec))
