@@ -11,6 +11,11 @@ library(sqldf)
 library(ggplot2)
 ```
 
+#############################################
+understanding the top features by bic and acc
+##############################################
+
+
 ##Load Data
 
 We are loading only projects with thier first project. Also, "personal" attribute is set as binary as results were better with it (instead of it being ordinal).
