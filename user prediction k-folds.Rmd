@@ -1,0 +1,146 @@
+---
+title: "User Prediction K-folds"
+author: "Ofir Mizrahi"
+date: "2018 M05 27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, warning = F)
+library(MASS)
+library(knitr)
+```
+
+###############################################################################
+selecting best model by steps forward and running regression on 10-fold
+###############################################################################
+
+
+##Data
+
+Load user table with web as binary
+
+```{r}
+path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\userBinaryWeb.csv"
+user <- read.csv(path, header = T)
+user$X <- NULL
+
+rm(path)
+```
+
+Create K-folds
+
+```{r}
+k <- 10
+set.seed(01071989)
+folds <- sample(k, nrow(user),replace=T)#sample random group number for each row
+```
+
+##Steps Forward on 10-Fold Training Sets
+
+We will run each train set in the steps forward greedy algoritm and save all models to a list.
+
+```{r}
+#run forward algorithem with BIC criteria and save selected models.
+selectedList <- list()
+for(i in 1:10){
+  train   <- user[folds!=i,]
+  
+  lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + personal, family = binomial(), data = train)
+  
+  lmEmpty <- glm(success ~ 1, family = binomial(), data = train)
+  
+  forward <- stepAIC(lmEmpty, scope= list(lower=formula(lmEmpty), upper=formula(lmFull)), direction = "forward", k=log(dim(train)[1]), trace=FALSE)#run as BIC
+  
+  selectedList[[i]] <- names(forward$coefficients)
+}
+
+rm(forward,lmEmpty,train,i)
+```
+
+
+##Feature Selection
+From the list of models (10 in total) we will count in how many each feature apeared and choose the feature if it appeared in more than half of the models.
+
+```{r}
+#count apearences of each feature
+selectedList <- unlist(selectedList,recursive = FALSE)
+counts <- c()
+coeffList <- names(lmFull$coefficients)
+for(i in 1:length(coeffList)){
+  counts[i] <- sum(selectedList==coeffList[i])
+}
+
+#choose the features that apeared in more than half
+choice <- as.data.frame(cbind(coeffList,counts))
+choice$counts <- as.integer(as.character(choice$counts))
+choice <- choice[choice$counts>=k/2,1]
+
+#screen out intercept
+choice <- choice[2:length(choice)]
+
+#print result
+kable(data.frame(Features=choice),caption= "The selected model includes the following features")
+
+rm(lmFull,selectedList,coeffList,counts,i)
+
+```
+
+##Logistic Regression 10-Fold
+
+Note: we should make sure the threshold is optimized. This is not the case currently. (currently set to 0.4)
+
+Run logistic regression on selected model:
+
+```{r}
+#run selected model on the 10 test sets to recieve an average of measures
+accuracy <- c()
+recall <- c()
+precision <- c()
+
+#automaticaly create the formula for the selected model
+string <- "success ~"
+for (j in 1:length(choice)) {
+  if(j==1){
+    string <- paste(string,choice[j])
+  }else{
+    string <- paste(string,"+",choice[j])
+  }
+}
+
+#run logistic regression
+for (i in 1:k) {
+  
+  train   <- user[folds!=i,]
+  test   <- user[folds==i,]
+  
+  selected <- glm(formula = string, family = binomial(), 
+                  data = train)
+  
+  #prediction from here
+  lmPred   <- data.frame(test$success,responce=predict(selected, test, type='response'))
+  
+  #note that we played with the cutoff which is a tradeoff between recall and precision. If we make it higher the presicion will be better.
+  lmPred$prediction <- ifelse(lmPred$responce > 0.4,1,0)
+  
+  #calculate accuracy for current run
+  accuracy[i] <- sum(lmPred$test.success==lmPred$prediction)/dim(lmPred)[1]
+  
+  #calculate confidance matrix
+  conf_mat  <- table(predicted = lmPred$prediction, actual = lmPred$test.success)
+  
+  #calculate recall and precision measures
+  recall[i] <- conf_mat[2,2]/sum(conf_mat[,2])
+  precision[i] <- conf_mat[2,2]/sum(conf_mat[2,])
+}
+
+#create a table with average measures
+x <- mean(accuracy)*100
+y <- mean(recall)*100
+z <- mean(precision)*100
+kable(data.frame(Measure=c("Accuracy","Recall","Precision"),Percent=c(x,y,z)), align = c('l','c'), caption = "Average Measures from 10-Fold")
+
+rm(lmPred,selected,test,train,accuracy,choice,conf_mat,i,j,precision,recall,string,x,y,z)
+
+```
+
