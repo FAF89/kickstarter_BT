@@ -105,7 +105,7 @@ for (j in 1:length(features)) {
 }
 
 lmFull  <- glm(formula= string , family = binomial(), data = data)
-
+summary(lmFull)
 #bic
 fullBIC <- AIC(lmFull, k=log(nrow(data)))
 fullAIC <- AIC(lmFull, k=2)
