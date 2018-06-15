@@ -45,7 +45,9 @@ path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
 temp <- read.csv(path, header = T)
 temp$X <- NULL
 
-perk <- temp[,c(6,27,29,31,44,50,55,25)]
+#with valuta and highestPerk or without
+perk <- temp[,c(6,24, 27,28,29,31,44,50,55,25)]
+#perk <- temp[,c(6,27,29,31,44,50,55,25)]
 perk <- perk[!c(perk$averageBackersRequired==Inf),]
 rm(path,temp)
 
@@ -81,7 +83,7 @@ projectFeatures <- names(project)[1:ncol(project)-1]
 
 data[is.na(data$personal),"personal"] <- 0
 #screen data for only first projects or not
-#data <- data[(data$created!=1),]
+#data <- data[(data$created==1),]
 data <- data[,c(features)]
 
 
@@ -112,6 +114,8 @@ fullAIC <- AIC(lmFull, k=2)
 
 bic <- vector()
 aic <- vector()
+statDev <- vector()
+statChi <- vector()
 
 #No perks
 current <- c(userFeatures,projectFeatures)
@@ -129,6 +133,12 @@ partAIC <- AIC(lmPart, k=2)
 bic[1] <- partBIC- fullBIC
 aic[1] <- partAIC- fullAIC
 
+  #create log ratio test
+  LRT <- anova(lmFull,lmPart,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[1] <- LRT$Deviance[2]
+  statChi[1] <- LRT$`Pr(>Chi)`[2]
+
 #No user
 current <- c(perkFeatures,projectFeatures)
 string <- "success ~"
@@ -144,7 +154,11 @@ partBIC <- AIC(lmPart, k=log(nrow(data)))
 partAIC <- AIC(lmPart, k=2)
 bic[2] <- partBIC- fullBIC
 aic[2] <- partAIC- fullAIC
-
+  #create log ratio test
+  LRT <- anova(lmFull,lmPart,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[2] <- LRT$Deviance[2]
+  statChi[2] <- LRT$`Pr(>Chi)`[2]
 
 #No project
 current <- c(userFeatures,perkFeatures)
@@ -161,21 +175,36 @@ partBIC <- AIC(lmPart, k=log(nrow(data)))
 partAIC <- AIC(lmPart, k=2)
 bic[3] <- partBIC- fullBIC
 aic[3] <- partAIC- fullAIC
-
+  #create log ratio test
+  LRT <- anova(lmFull,lmPart,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[3] <- LRT$Deviance[2]
+  statChi[3] <- LRT$`Pr(>Chi)`[2]
 
 lables <- c("finance","entrepreneur", "pitch")
 
-#BIC plot
-res <- as.data.frame(cbind(lables,bic))
+#create table for plot
+res <- as.data.frame(cbind(lables,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(lables, -bic), y=bic, fill="blue"), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))+scale_fill_manual(values = c("#3690c0"))
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
+
+
+#create the deviance plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(lables, -statDev), y=statDev), stat = "identity")+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  geom_label(aes(x=reorder(lables, -statDev), y=0, label=statChi, fill= pvalColor),size=5)+
+  xlab("Excluded Feature (from full model)")+ylab("Deviance Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1))+scale_fill_manual(values = c("white"))
+
 
 #AIC plot
 res2 <- as.data.frame(cbind(lables,aic))
 res2$aic <- as.numeric(as.character(res2$aic))
 ggplot(res2)+geom_bar(aes(x=reorder(lables, -aic), y=aic, fill="blue"), stat = "identity")+xlab("Excluded Features (from full model)")+ylab("AIC Difference (part-full)")+ggtitle("Step Backwards (AIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#3690c0"))
 
-rm(bic,res,res2,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC, aic, fullAIC, lables, partAIC)
+rm(bic,res,res2,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC, aic, fullAIC, lables, partAIC,LRT,statChi,statDev)
 ```
 
 #Step Forward (BIC & AIC)
@@ -193,6 +222,8 @@ emptyAIC <- AIC(lmEmpty, k=2)
 features <- names(data)[1:ncol(data)-1]
 bic <- vector()
 aic <- vector()
+statDev <- vector()
+statChi <- vector()
 
 #only user
 current <- userFeatures
@@ -209,6 +240,12 @@ partBIC <- AIC(lmPart, k=log(nrow(data)))
 partAIC <- AIC(lmPart, k=2)
 bic[1] <- emptyBIC - partBIC
 aic[1] <- emptyAIC - partAIC
+
+    #create log ratio test
+  LRT <- anova(lmPart,lmEmpty,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[1] <- LRT$Deviance[2]
+  statChi[1] <- LRT$`Pr(>Chi)`[2]
 
 
 #only perks
@@ -227,6 +264,12 @@ partAIC <- AIC(lmPart, k=2)
 bic[2] <- emptyBIC - partBIC
 aic[2] <- emptyAIC - partAIC
 
+    #create log ratio test
+  LRT <- anova(lmPart,lmEmpty,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[2] <- LRT$Deviance[2]
+  statChi[2] <- LRT$`Pr(>Chi)`[2]
+
 #only project
 current <- projectFeatures
 string <- "success ~"
@@ -243,11 +286,21 @@ partAIC <- AIC(lmPart, k=2)
 bic[3] <- emptyBIC - partBIC
 aic[3] <- emptyAIC - partAIC
 
+    #create log ratio test
+  LRT <- anova(lmPart,lmEmpty,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[3] <- LRT$Deviance[2]
+  statChi[3] <- LRT$`Pr(>Chi)`[2]
+
 
 lables <- c("entrepreneur","finance", "pitch")
 
-res <- as.data.frame(cbind(lables,bic))
+#create table for plot
+res <- as.data.frame(cbind(lables,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
+res$statDev <- as.numeric(as.character(res$statDev))
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
+
 ggplot(res)+geom_bar(aes(x=reorder(lables, -bic), y=bic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
 
 
@@ -279,7 +332,6 @@ res3$aic <- as.numeric(as.character(res3$aic))
 ggplot(res3)+geom_bar(aes(x=reorder(lables, -aic), y=aic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("AIC Difference (empty-part)")+ggtitle("Step Forward (AIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
 
 
-res4 <- as.data.frame(cbind(lables,aic))
 colors <- c('rgb(216,179,101)', 'rgb(158,154,200)', 'rgb(90,180,172)')
 colors <- c('rgb(158,154,200)', 'rgb(216,179,101)', 'rgb(90,180,172)')
 colors <- c('rgb(156,190,189)', 'rgb(210,203,108)', 'rgb(217,217,217)')
@@ -304,7 +356,30 @@ plot_ly(data, labels = ~lables, values = ~aic, type = 'pie',
   size = 20,
   color = 'Black'))
 
-rm(bic,res,res2,res3,res4,emptyBIC,lmEmpty,features,current,string,j,lmPart,partBIC, aic, emptyAIC, lables, partAIC,colors, perkFeatures, projectFeatures, userFeatures)
+
+
+#deviance pie chart
+statDev <- statDev*(-1)
+
+plot_ly(data, labels = ~lables, values = ~statDev, type = 'pie',
+        textposition = 'inside',
+        textinfo = 'label+percent',
+        insidetextfont = list(color = '#000000'),
+        hoverinfo = 'text',
+        text = ~paste('$', aic, ' billions'),
+        marker = list(colors = colors,
+                      line = list(color = '#FFFFFF', width = 1)),
+                      #The 'pull' attribute can also be used to create space between the sectors
+        showlegend = FALSE) %>%
+  layout(title = 'Deviance Difference % (From Total Difference) in Feature Sets',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         font=list(
+  family = "Arial",
+  size = 20,
+  color = 'Black'))
+
+rm(bic,res,res2,res3,emptyBIC,lmEmpty,features,current,string,j,lmPart,partBIC, aic, emptyAIC, lables, partAIC,colors, perkFeatures, projectFeatures, userFeatures,LRT,statChi,statDev)
 
 ```
 
