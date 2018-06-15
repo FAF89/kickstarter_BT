@@ -67,6 +67,9 @@ lmFull  <- glm(formula= string , family = binomial(), data = project)
 fullBIC <- AIC(lmFull, k=log(nrow(project)))
 
 bic <- vector()
+statDev <- vector()
+statChi <- vector()
+
 for (i in 1:length(features)) {
   current <- features[-i]
   string <- "success ~"
@@ -80,15 +83,33 @@ for (i in 1:length(features)) {
   lmPart  <- glm(string, family = binomial(), data = project)
   partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- partBIC- fullBIC
+  
+  #create log ratio test
+  LRT <- anova(lmFull,lmPart,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[i] <- LRT$Deviance[2]
+  statChi[i] <- LRT$`Pr(>Chi)`[2]
 }
 
 features <- c("num. words", "main video", "num. additional videos", "num. images", "view gallery", "estimated delivery time", "shipping spread" )
-res <- as.data.frame(cbind(features,bic))
+
+#create table for plot
+res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic, fill="blue"), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+scale_fill_manual(values = c("#3690c0"))
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
+
+#create the plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-3), label=statChi, fill= pvalColor),size=5)+
+  ggtitle("Step Backwards (BIC)")+
+  theme(legend.position="none", axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+scale_fill_manual(values = c("indianred2","white"))
 
 
-#rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC)
+rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC,LRT,statChi,statDev)
 
 ```
 
@@ -111,22 +132,42 @@ emptyBIC <- AIC(lmEmpty, k=log(nrow(project)))
 
 features <- names(project)[1:ncol(project)-1]
 bic <- vector()
+statDev <- vector()
+statChi <- vector()
+
 for (i in 1:length(features)) {
   current <- features[i]
   string <- paste("success ~",current)
   lmPart  <- glm(string, family = binomial(), data = project)
   partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- emptyBIC - partBIC 
+  
+    #create log ratio test
+  LRT <- anova(lmPart,lmEmpty,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[i] <- LRT$Deviance[2]
+  statChi[i] <- LRT$`Pr(>Chi)`[2]
 }
 
 features <- c("num. words", "main video", "num. additional videos", "num. images", "view gallery", "estimated delivery time", "shipping spread" )
-res <- as.data.frame(cbind(features,bic))
+
+#create table for plot
+res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+scale_fill_manual(values = c("#ec7014"))
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 
+#create the plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
+  xlab("Added Feature (to intercept)")+
+  ylab("BIC Difference (empty-part)")+
+  ggtitle("Step Forward (BIC)")+
+  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
+  theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+
+  scale_fill_manual(values = c("white"))
 
-#rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
+rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC,LRT,statChi,statDev)
 ```
 
 ##Feature Importance for Accuracy (prediction)
