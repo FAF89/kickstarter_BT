@@ -85,6 +85,10 @@ Note: The following is true for all features except categorical ones (in our cas
 While looking at the devDif if we get a negative outcome (while using anova(full,part) devDif=devFull-devPart) means the dev of the partial model is bigger thus less favorable. With that being said, this will always be the situation (just like with $R^2$ for linear regression) as we add more parameters the model will get better as there is no penalty.
 We user BIC because we want to compare models that are not nested and because we want to penalize the model so we will not create an over-fitted model.
 
+To conclude, the difference between BIC and Dev in our case is only by a constant and therefore exactly the same.
+The LR test is done on each column by itself and can help us decide whether we want to use the variable in the "section feature importance" or not. But, just like the BIC, there is still no statistical test we can create between models (columns) because they are not nessted.
+Can we compare models by the p-vals we got?! it is still not a statistical test...
+
 ```{r Backward Step, warning=FALSE}
 lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + experience + personal, family = binomial(), data = user)
 
@@ -122,7 +126,7 @@ for (i in 1:length(features)) {
 res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
 res$statDev <- as.numeric(as.character(res$statDev))*(-1)
-res$statChi <- round(as.numeric(as.character(res$statChi)),2)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 
 
 
@@ -186,7 +190,7 @@ for (i in 1:length(features)) {
 res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
 res$statDev <- as.numeric(as.character(res$statDev))*(-1)
-res$statChi <- round(as.numeric(as.character(res$statChi)),2)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 
 #create the plot
 ggplot(res)+
@@ -196,7 +200,7 @@ ggplot(res)+
   geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
   xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(legend.position="none")
 
-rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
+rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC,LRT,statChi,statDev)
 ```
 
 ##Feature Importance for Accuracy (prediction)
