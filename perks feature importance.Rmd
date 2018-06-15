@@ -25,7 +25,7 @@ path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\sandboxCleaned.csv"
 temp <- read.csv(path, header = T)
 temp$X <- NULL
 
-project <- temp[,c(6,24, 27,28,29,31,43,44,50,55,25)]
+project <- temp[,c(6,24, 27,28,29,31,44,50,55,25)]
 project <- project[!c(project$averageBackersRequired==Inf),]
 rm(path,temp)
 ```
@@ -46,6 +46,8 @@ The commentary on the plot is pretty stright forward.
 
 The number of perks and average backers requiered are the only features still staying important.
 
+On the statistical test side, we note that valuta is bad yet regarding Dev the full model is significantly better. Why so? because just like "continent" in the user set, this feature is categorical and creates many dummy variables (many levels) and so is penalized much more in the BIC.
+
 ```{r Backward Step}
 
 features <- names(project)[1:ncol(project)-1]
@@ -59,13 +61,16 @@ for (j in 1:length(features)) {
   }
 }
 
-lmFull  <- glm(formula= success ~ goal + valuta + lowestPerk + highestPerk+ medianPerk + numPerks+ addedPerks + durationCampaign + averageBackersRequired, family = binomial(), data = project)
+lmFull  <- glm(formula= string, family = binomial(), data = project)
 
 
 #bic
 fullBIC <- AIC(lmFull, k=log(nrow(project)))
 
 bic <- vector()
+statDev <- vector()
+statChi <- vector()
+
 for (i in 1:length(features)) {
   current <- features[-i]
   string <- "success ~"
@@ -79,13 +84,35 @@ for (i in 1:length(features)) {
   lmPart  <- glm(string, family = binomial(), data = project)
   partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- partBIC- fullBIC
+  
+  #create log ratio test
+  LRT <- anova(lmFull,lmPart,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[i] <- LRT$Deviance[2]
+  statChi[i] <- LRT$`Pr(>Chi)`[2]
 }
 
-res <- as.data.frame(cbind(features,bic))
+#create table for plot
+res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 
-rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC)
+#create the plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
+  xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1))
+
+res <- melt(res)
+#emphasis the relationship between deviance and BIC. We can see the same gap for each variable except "continent" (there also a bit different with "noFBfriends which it logic")
+ggplot(res[!res$variable=="statChi",])+
+  geom_bar(aes(x=features, y=value, fill=variable), stat = "identity",position = "dodge")
+
+rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC,LRT,statChi,statDev)
 
 ```
 
@@ -108,17 +135,39 @@ emptyBIC <- AIC(lmEmpty, k=log(nrow(project)))
 
 features <- names(project)[1:ncol(project)-1]
 bic <- vector()
+statDev <- vector()
+statChi <- vector()
+
 for (i in 1:length(features)) {
   current <- features[i]
   string <- paste("success ~",current)
   lmPart  <- glm(string, family = binomial(), data = project)
   partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- emptyBIC - partBIC 
+  
+    #create log ratio test
+  LRT <- anova(lmPart,lmEmpty,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[i] <- LRT$Deviance[2]
+  statChi[i] <- LRT$`Pr(>Chi)`[2]
 }
 
-res <- as.data.frame(cbind(features,bic))
+#create table for plot
+res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 
-rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
+#create the plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+
+  ggtitle("Step Backwards (BIC)")+
+  theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1))
+
+rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC,LRT,statChi,statDev)
 ```
