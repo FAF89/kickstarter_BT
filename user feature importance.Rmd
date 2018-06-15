@@ -9,16 +9,18 @@ output: html_document
 knitr::opts_chunk$set(echo = T)
 library(sqldf)
 library(ggplot2)
+library(reshape2)
 ```
 
 #########################################################
-understanding the top features by bic and acc
+understanding the top features by BIC and ACC.
+Also including LRT and an explanation of the connection to BIC
 #########################################################
 
 
 ##Load Data
 
-We are loading only users with thier first project. Also, "personal" attribute is set as binary as results were better with it (instead of it being ordinal).
+We are loading only users with their first project. Also, "personal" attribute is set as binary as results were better with it (instead of it being ordinal).
 
 ```{r}
 path <- "C:\\Users\\Ofir\\Desktop\\Thesis\\Kickstarter\\userBinaryWeb.csv"
@@ -34,7 +36,7 @@ rm(path)
 
 Let's create a model with all features (backed + facebookFriends + continent + noFacebookFriends + personal) and then remove one of them and see how it affects the BIC measure.
 
-We are using BIC meausure as there is not need to optimaize any parameter (such as threshold) as well as taking into conciderations the number of variables in the model.
+We are using BIC measure as there is not need to optimize any parameter (such as threshold) as well as taking into considerations the number of variables in the model.
 
 The calculation done is part model BIC minus full model BIC. As we want to minimize BIC if we get:
 a positive result, means adding the excluded feature to create the full model was creating a better model.
@@ -43,13 +45,48 @@ a negative result, means adding the excluded feature to create the full model wa
 We can see that "personal" was the most important feature which notes which users have a personal site. Such feature might show a user who is already consolidated with his project, has goals and maybe some products running. Shows seriousness.
 
 Another highly important variable is the "backed" feature
-Q: Due to the past plots and analysis done we raised a question of whether the influence on success is due to time on site (experience) or due to "hidden" variables of involvment on site such as "backed" and "comments" (which is not used here currently). Such result hints the answer is yes. As experience turned out not to be important while having backed in the model.
+Q: Due to the past plots and analysis done we raised a question of whether the influence on success is due to time on site (experience) or due to "hidden" variables of involvement on site such as "backed" and "comments" (which is not used here currently). Such result hints the answer is yes. As experience turned out not to be important while having backed in the model.
 
-Continent is the least segnificant feature and only "hurts" the model. This is a good thing implying that the site is indeed globlized and success is not affected by location.
+Continent is the least significant feature and only "hurts" the model. This is a good thing implying that the site is indeed globalized and success is not affected by location.
 
+####Statistical significance:
+While trying to apply some statistical test in order to anchor the results we got we will use the deviance.
+In linear regression we have the $R^2$ measure and the parallel for logistic regression will be the deviance.
+in the output we will see the null-dev and the residual-dev.
+deviance in general is calculated as:
+$Null Deviance = 2(LL(Saturated Model) - LL(Null Model))$ on df = df_Sat (n) - df_Null (1) = n-1
+$Residual Deviance = 2(LL(Saturated Model) - LL(Proposed Model))$ on df = df_Sat(n) - df_Proposed(k+1=p) = n-p
 
-```{r Backward Step}
-lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + personal, family = binomial(), data = user)
+* The saturated model in a model with n parameters (a parameter for each observation which will create a perfect model).
+* The null model is a model with the intercept only.
+* The proposed model is the current model with the k parameters in the formula + the intercept.
+
+The null dev does not interest us. why? because the null deviance will be the same for all of our models. They are all based on the same data hence will yield the same intercept.
+The red dev is interesting and we will use it to create a statistical test. We can write the res dev in a simpler way by $ResDev=-2log(L)$. As we know such term exists in the BIC measure and we can write $BIC=ResDev+k*log(n)$.
+We can indeed see that relationship while running a model, taking the resDev from the summary and adding k*log(n) will result in BIC.
+This is noted in order to understand that the BIC measure we are presenting is highly connected to the dev results with an addition of penalty for parameters.
+
+We can create a statistical test for each column in the plot (part-full BIC results). Due to the fact the 2 models are nested we can subtract their resDev and by Wilks' theorem have a statistic distributed $chi^2$ with $n-p$ df and calculate the p-val for the significance of the 2 models dif.
+For that we will use the anova command and take the devDif and the p Val calculated by it. We will note the following relationship:
+$$devDif= devFull - devPart$$
+$$bicDif= devFull + penFull - devPart - penPart$$
+Therefore:
+$$bicDif - penF + penP = devDif$$
+and while
+$$penF-penP = par(F)*log(n) - par(P)*log(n) = [par(F)-par(P)]*log(n)$$
+we can write
+$$bicDif-[par(F)-par(P)]*log(n)]=devDif$$
+In our case, as we omit only 1 feature between models hence see the final relationship by writing
+$$bicDif-log(n)=devDif$$
+Where devDif= deviance difference, bicDif= BIC difference, penFull= penalty for the full model, par(F) = number of parameters for the full model + intercept.
+
+Note: The following is true for all features except categorical ones (in our case only "continent") which creates dummy variables with the number of factor levels -1.
+
+While looking at the devDif if we get a negative outcome (while using anova(full,part) devDif=devFull-devPart) means the dev of the partial model is bigger thus less favorable. With that being said, this will always be the situation (just like with $R^2$ for linear regression) as we add more parameters the model will get better as there is no penalty.
+We user BIC because we want to compare models that are not nested and because we want to penalize the model so we will not create an over-fitted model.
+
+```{r Backward Step, warning=FALSE}
+lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + experience + personal, family = binomial(), data = user)
 
 #bic
 fullBIC <- AIC(lmFull, k=log(nrow(user)))
@@ -57,6 +94,9 @@ fullBIC <- AIC(lmFull, k=log(nrow(user)))
 
 features <- names(user)[1:ncol(user)-1]
 bic <- vector()
+statDev <- vector()
+statChi <- vector()
+
 for (i in 1:length(features)) {
   current <- features[-i]
   string <- "success ~"
@@ -70,13 +110,37 @@ for (i in 1:length(features)) {
   lmPart  <- glm(string, family = binomial(), data = user)
   partBIC <- AIC(lmPart, k=log(nrow(user)))
   bic[i] <- partBIC- fullBIC
+
+  #create log ratio test
+  LRT <- anova(lmFull,lmPart,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[i] <- LRT$Deviance[2]
+  statChi[i] <- LRT$`Pr(>Chi)`[2]
 }
 
-res <- as.data.frame(cbind(features,bic))
+#create table for plot
+res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),2)
 
-rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC)
+
+
+#create the plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
+  xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(legend.position="none")
+
+
+res <- melt(res)
+#emphasis the relationship between deviance and BIC. We can see the same gap for each variable except "continent" (there also a bit different with "noFBfriends which it logic")
+ggplot(res[!res$variable=="statChi",])+
+  geom_bar(aes(x=features, y=value, fill=variable), stat = "identity",position = "dodge")
+
+rm(bic,res,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC,LRT,statChi,statDev)
 
 ```
 
@@ -91,7 +155,7 @@ a negative result, means adding the excluded feature to create the full model wa
 
 In this plot we can again see the past discussed question about "backed" and "experience" and we can see that now when experience is the only variable in the model it has a major effect (second to "experience"backed). Experience holds within information that backed has.
 
-Social network seems to be of an importance here- as oposed to the last plot- though only minor.
+Social network seems to be of an importance here- as opposed to the last plot- though only minor.
 
 
 ```{r Forward step}
@@ -101,17 +165,36 @@ emptyBIC <- AIC(lmEmpty, k=log(nrow(user)))
 
 features <- names(user)[1:ncol(user)-1]
 bic <- vector()
+statDev <- vector()
+statChi <- vector()
+
 for (i in 1:length(features)) {
   current <- features[i]
   string <- paste("success ~",current)
   lmPart  <- glm(string, family = binomial(), data = user)
   partBIC <- AIC(lmPart, k=log(nrow(user)))
   bic[i] <- emptyBIC - partBIC 
+  
+  #create log ratio test
+  LRT <- anova(lmPart,lmEmpty,test="Chi")
+  #take the value for the residual deviance and p-val ([1] is for null dev)
+  statDev[i] <- LRT$Deviance[2]
+  statChi[i] <- LRT$`Pr(>Chi)`[2]
 }
 
-res <- as.data.frame(cbind(features,bic))
+#create table for plot
+res <- as.data.frame(cbind(features,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
-ggplot(res)+geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")
+res$statDev <- as.numeric(as.character(res$statDev))*(-1)
+res$statChi <- round(as.numeric(as.character(res$statChi)),2)
+
+#create the plot
+ggplot(res)+
+  geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
+  xlab("Excluded Feature (from full model)")+
+  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
+  xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(legend.position="none")
 
 rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC)
 ```
@@ -132,9 +215,9 @@ rm(k)
 
 ###Backward Step
 
-Note: measurements like recall and percision had not been taken as is some runs results are so bad the model predicts only 1 category.
+Note: measurements like recall and precision had not been taken as is some runs results are so bad the model predicts only 1 category.
 
-In the plot we can see the changes in the accuracy were really minor and I don't think very segnificant (of course this needs to be proven statisticaly). Also, a change in the threshold (now 0.5 by default) would change the feature importance as well. This is way I differ from taking such measure to select feature importance.
+In the plot we can see the changes in the accuracy were really minor and I don't think very significant (of course this needs to be proven statistically). Also, a change in the threshold (now 0.5 by default) would change the feature importance as well. This is way I differ from taking such measure to select feature importance.
 
 The biggest difference when comparing to the BIC feature selection is that here, "personal" is almost the worst feature for prediction.
 
