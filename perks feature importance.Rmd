@@ -9,6 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = T, warning = F)
 library(sqldf)
 library(ggplot2)
+library(reshape2)
 ```
 
 #######################################
@@ -145,7 +146,7 @@ for (i in 1:length(features)) {
   partBIC <- AIC(lmPart, k=log(nrow(project)))
   bic[i] <- emptyBIC - partBIC 
   
-    #create log ratio test
+  #create log ratio test
   LRT <- anova(lmPart,lmEmpty,test="Chi")
   #take the value for the residual deviance and p-val ([1] is for null dev)
   statDev[i] <- LRT$Deviance[2]
@@ -161,12 +162,10 @@ res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 #create the plot
 ggplot(res)+
   geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
-  xlab("Excluded Feature (from full model)")+
-  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  xlab("Added Feature (to intercept)")+
+  ylab("BIC Difference (empty-part)")+
+  ggtitle("Step Forward (BIC)")+
   geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
-  xlab("Excluded Feature (from full model)")+
-  ylab("BIC Difference (part-full)")+
-  ggtitle("Step Backwards (BIC)")+
   theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1))
 
 rm(bic,res,emptyBIC,lmEmpty,features,current,string,i,lmPart,partBIC,LRT,statChi,statDev)
