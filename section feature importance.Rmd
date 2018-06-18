@@ -11,6 +11,7 @@ library(corrplot)
 library(ggcorrplot)
 library(sqldf)
 library(plotly)
+library(rcompanion)
 ```
 
 
@@ -83,7 +84,7 @@ projectFeatures <- names(project)[1:ncol(project)-1]
 
 data[is.na(data$personal),"personal"] <- 0
 #screen data for only first projects or not
-#data <- data[(data$created==1),]
+data <- data[(data$created!=1),]
 data <- data[,c(features)]
 
 
@@ -91,10 +92,24 @@ rm(user,perk,project, path, temp)
 ```
 
 
-#Step Backward (BIC & AIC)
+#Step Backward (BIC & AIC & nagelkerke)
 
 Create the steps excluding the entire set each time.
 Because we don't want to penalize for number of features we use AIC as well but we can see results are the same.
+
+As we are comparing whole sets, creating a pie chart is wrong at the sum of all parts does not represent a whole.
+Also, comparing by bic or deviance is problematic as we are now comparing sets of features.
+We shall make use of the nagelkerke pseudo $R^2$. As the concept of residuals can not easily be defined in GLM models and the likelihood is used instead we want to generalize the measure by using the likelihood.
+The first form proposed by Cox&Snell:
+$$R^2=1-exp^{-(2/n)*(l(\beta)-l(0))}=1-[L(0)/L(\beta)]^{2/n}$$
+where $l(0)$ and $l(\beta)$ denote the log likelihoods of the null and the fitted
+model respectively.
+
+Nagelkerke showed that the current $R^2$ suggested does not reach the maximum of 1 like it should. This happens in discrete models such as the logistic regression, where the likelihood is a product of probabilities with mazimum of 1.
+The maximun $R^2$ for a model is:
+$max(R^2)=1-L(0)^{2/n}$
+Therefore to understand what percent we managed to explained should be taken into proportion with the maximum possible explanation for our model.
+Hence we will divide the $R^2$ we get by the $max(R^2)$
 
 ```{r}
 string <- "success ~"
@@ -107,17 +122,21 @@ for (j in 1:length(features)) {
 }
 
 lmFull  <- glm(formula= string , family = binomial(), data = data)
-summary(lmFull)
+
 #bic
 fullBIC <- AIC(lmFull, k=log(nrow(data)))
 fullAIC <- AIC(lmFull, k=2)
+
+nag <- nagelkerke(lmFull)
+nagFull <- nag$Pseudo.R.squared.for.model.vs.null[3]
 
 bic <- vector()
 aic <- vector()
 statDev <- vector()
 statChi <- vector()
+nagPart <- vector()
 
-#No perks
+#########################No perks
 current <- c(userFeatures,projectFeatures)
 string <- "success ~"
 for (j in 1:length(current)) {
@@ -128,18 +147,22 @@ for (j in 1:length(current)) {
   }
 }
 lmPart  <- glm(string, family = binomial(), data = data)
+
 partBIC <- AIC(lmPart, k=log(nrow(data)))
 partAIC <- AIC(lmPart, k=2)
 bic[1] <- partBIC- fullBIC
 aic[1] <- partAIC- fullAIC
 
-  #create log ratio test
-  LRT <- anova(lmFull,lmPart,test="Chi")
-  #take the value for the residual deviance and p-val ([1] is for null dev)
-  statDev[1] <- LRT$Deviance[2]
-  statChi[1] <- LRT$`Pr(>Chi)`[2]
+#create log ratio test
+LRT <- anova(lmFull,lmPart,test="Chi")
+#take the value for the residual deviance and p-val ([1] is for null dev)
+statDev[1] <- LRT$Deviance[2]
+statChi[1] <- LRT$`Pr(>Chi)`[2]
 
-#No user
+nag <- nagelkerke(lmPart)
+nagPart[1] <- nag$Pseudo.R.squared.for.model.vs.null[3]
+
+#######################No user
 current <- c(perkFeatures,projectFeatures)
 string <- "success ~"
 for (j in 1:length(current)) {
@@ -154,13 +177,18 @@ partBIC <- AIC(lmPart, k=log(nrow(data)))
 partAIC <- AIC(lmPart, k=2)
 bic[2] <- partBIC- fullBIC
 aic[2] <- partAIC- fullAIC
-  #create log ratio test
-  LRT <- anova(lmFull,lmPart,test="Chi")
-  #take the value for the residual deviance and p-val ([1] is for null dev)
-  statDev[2] <- LRT$Deviance[2]
-  statChi[2] <- LRT$`Pr(>Chi)`[2]
 
-#No project
+#create log ratio test
+LRT <- anova(lmFull,lmPart,test="Chi")
+
+#take the value for the residual deviance and p-val ([1] is for null dev)
+statDev[2] <- LRT$Deviance[2]
+statChi[2] <- LRT$`Pr(>Chi)`[2]
+
+nag <- nagelkerke(lmPart)
+nagPart[2] <- nag$Pseudo.R.squared.for.model.vs.null[3]
+
+########################No project
 current <- c(userFeatures,perkFeatures)
 string <- "success ~"
 for (j in 1:length(current)) {
@@ -175,15 +203,23 @@ partBIC <- AIC(lmPart, k=log(nrow(data)))
 partAIC <- AIC(lmPart, k=2)
 bic[3] <- partBIC- fullBIC
 aic[3] <- partAIC- fullAIC
-  #create log ratio test
-  LRT <- anova(lmFull,lmPart,test="Chi")
-  #take the value for the residual deviance and p-val ([1] is for null dev)
-  statDev[3] <- LRT$Deviance[2]
-  statChi[3] <- LRT$`Pr(>Chi)`[2]
 
-lables <- c("finance","entrepreneur", "pitch")
+#create log ratio test
+LRT <- anova(lmFull,lmPart,test="Chi")
+
+#take the value for the residual deviance and p-val ([1] is for null dev)
+statDev[3] <- LRT$Deviance[2]
+statChi[3] <- LRT$`Pr(>Chi)`[2]
+
+nag <- nagelkerke(lmPart)
+nagPart[3] <- nag$Pseudo.R.squared.for.model.vs.null[3]
+
+#calculate the gap in explanation when the set is removed
+print(1-(nagPart/nagFull))
 
 #create table for plot
+lables <- c("finance","entrepreneur", "pitch")
+
 res <- as.data.frame(cbind(lables,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
 res$statDev <- as.numeric(as.character(res$statDev))*(-1)
@@ -205,7 +241,7 @@ res2 <- as.data.frame(cbind(lables,aic))
 res2$aic <- as.numeric(as.character(res2$aic))
 ggplot(res2)+geom_bar(aes(x=reorder(lables, -aic), y=aic, fill="blue"), stat = "identity")+xlab("Excluded Features (from full model)")+ylab("AIC Difference (part-full)")+ggtitle("Step Backwards (AIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#3690c0"))
 
-rm(bic,res,res2,fullBIC,lmFull,features,current,string,i,j,lmPart,partBIC, aic, fullAIC, lables, partAIC,LRT,statChi,statDev)
+rm(bic,res,res2,fullBIC,lmFull,current,string,i,j,lmPart,partBIC, aic, fullAIC, lables, partAIC,LRT,statChi,statDev, nagPart, nag)
 ```
 
 #Step Forward (BIC & AIC)
@@ -225,8 +261,9 @@ bic <- vector()
 aic <- vector()
 statDev <- vector()
 statChi <- vector()
+nagPart <- vector()
 
-#only user
+##################only user
 current <- userFeatures
 string <- "success ~"
 for (j in 1:length(current)) {
@@ -242,11 +279,14 @@ partAIC <- AIC(lmPart, k=2)
 bic[1] <- emptyBIC - partBIC
 aic[1] <- emptyAIC - partAIC
 
-    #create log ratio test
-  LRT <- anova(lmPart,lmEmpty,test="Chi")
-  #take the value for the residual deviance and p-val ([1] is for null dev)
-  statDev[1] <- LRT$Deviance[2]
-  statChi[1] <- LRT$`Pr(>Chi)`[2]
+#create log ratio test
+LRT <- anova(lmPart,lmEmpty,test="Chi")
+#take the value for the residual deviance and p-val ([1] is for null dev)
+statDev[1] <- LRT$Deviance[2]
+statChi[1] <- LRT$`Pr(>Chi)`[2]
+
+nag <- nagelkerke(lmPart)
+nagPart[1] <- nag$Pseudo.R.squared.for.model.vs.null[3]
 
 
 #only perks
@@ -265,13 +305,17 @@ partAIC <- AIC(lmPart, k=2)
 bic[2] <- emptyBIC - partBIC
 aic[2] <- emptyAIC - partAIC
 
-    #create log ratio test
-  LRT <- anova(lmPart,lmEmpty,test="Chi")
-  #take the value for the residual deviance and p-val ([1] is for null dev)
-  statDev[2] <- LRT$Deviance[2]
-  statChi[2] <- LRT$`Pr(>Chi)`[2]
+#create log ratio test
+LRT <- anova(lmPart,lmEmpty,test="Chi")
+#take the value for the residual deviance and p-val ([1] is for null dev)
+statDev[2] <- LRT$Deviance[2]
+statChi[2] <- LRT$`Pr(>Chi)`[2]
 
-#only project
+nag <- nagelkerke(lmPart)
+nagPart[2] <- nag$Pseudo.R.squared.for.model.vs.null[3]
+
+
+#####################only project
 current <- projectFeatures
 string <- "success ~"
 for (j in 1:length(current)) {
@@ -287,16 +331,22 @@ partAIC <- AIC(lmPart, k=2)
 bic[3] <- emptyBIC - partBIC
 aic[3] <- emptyAIC - partAIC
 
-    #create log ratio test
-  LRT <- anova(lmPart,lmEmpty,test="Chi")
-  #take the value for the residual deviance and p-val ([1] is for null dev)
-  statDev[3] <- LRT$Deviance[2]
-  statChi[3] <- LRT$`Pr(>Chi)`[2]
+#create log ratio test
+LRT <- anova(lmPart,lmEmpty,test="Chi")
+#take the value for the residual deviance and p-val ([1] is for null dev)
+statDev[3] <- LRT$Deviance[2]
+statChi[3] <- LRT$`Pr(>Chi)`[2]
+
+nag <- nagelkerke(lmPart)
+nagPart[3] <- nag$Pseudo.R.squared.for.model.vs.null[3]
 
 
-lables <- c("entrepreneur","finance", "pitch")
+#calculate the explanation when the set is solo
+print(nagPart/nagFull)
 
 #create table for plot
+lables <- c("entrepreneur","finance", "pitch")
+
 res <- as.data.frame(cbind(lables,bic,statDev,statChi,pvalColor=(statChi<0.05)))
 res$bic <- as.numeric(as.character(res$bic))
 res$statDev <- as.numeric(as.character(res$statDev))
@@ -317,15 +367,15 @@ plot_ly(data, labels = ~lables, values = ~bic, type = 'pie',
         text = ~paste('$', bic, ' billions'),
         marker = list(colors = colors,
                       line = list(color = '#FFFFFF', width = 1)),
-                      #The 'pull' attribute can also be used to create space between the sectors
+        #The 'pull' attribute can also be used to create space between the sectors
         showlegend = FALSE) %>%
   layout(title = 'BIC Difference % (From Total Difference) in Feature Sets',
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          font=list(
-  family = "Arial",
-  size = 20,
-  color = 'Black'))
+           family = "Arial",
+           size = 20,
+           color = 'Black'))
 
 
 #AIC plot
@@ -348,15 +398,15 @@ plot_ly(data, labels = ~lables, values = ~aic, type = 'pie',
         text = ~paste('$', aic, ' billions'),
         marker = list(colors = colors,
                       line = list(color = '#FFFFFF', width = 1)),
-                      #The 'pull' attribute can also be used to create space between the sectors
+        #The 'pull' attribute can also be used to create space between the sectors
         showlegend = FALSE) %>%
   layout(title = 'AIC Difference % (From Total Difference) in Feature Sets',
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          font=list(
-  family = "Arial",
-  size = 20,
-  color = 'Black'))
+           family = "Arial",
+           size = 20,
+           color = 'Black'))
 
 
 
@@ -371,17 +421,17 @@ plot_ly(data, labels = ~lables, values = ~statDev, type = 'pie',
         text = ~paste('$', aic, ' billions'),
         marker = list(colors = colors,
                       line = list(color = '#FFFFFF', width = 1)),
-                      #The 'pull' attribute can also be used to create space between the sectors
+        #The 'pull' attribute can also be used to create space between the sectors
         showlegend = FALSE) %>%
   layout(title = 'Deviance Difference % (From Total Difference) in Feature Sets',
          xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          font=list(
-  family = "Arial",
-  size = 20,
-  color = 'Black'))
+           family = "Arial",
+           size = 20,
+           color = 'Black'))
 
-rm(bic,res,res2,res3,emptyBIC,lmEmpty,features,current,string,j,lmPart,partBIC, aic, emptyAIC, lables, partAIC,colors, perkFeatures, projectFeatures, userFeatures,LRT,statChi,statDev)
+rm(bic,res,res3,emptyBIC,lmEmpty,features,current,string,j,lmPart,partBIC, aic, emptyAIC, lables, partAIC,colors, perkFeatures, projectFeatures, userFeatures,LRT,statChi,statDev,nag,nagFull,nagPart)
 
 ```
 
@@ -398,9 +448,9 @@ res <- round(cor(corDat,method = c("spearman")),2)
 
 
 ggcorrplot(res,
-   outline.col = "white",
-   ggtheme = ggplot2::theme_gray,
-   colors = c("#6D9EC1", "white", "#E46726"),insig = "blank",lab = TRUE)
+           outline.col = "white",
+           ggtheme = ggplot2::theme_gray,
+           colors = c("#6D9EC1", "white", "#E46726"),insig = "blank",lab = TRUE)
 
 
 ```
