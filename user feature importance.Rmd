@@ -134,9 +134,10 @@ res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 ggplot(res)+
   geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
   xlab("Excluded Feature (from full model)")+
-  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  ylab("BIC Difference (part-full)")+
+  ggtitle("First Step Backwards (BIC)")+
   geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
-  xlab("Excluded Feature (from full model)")+ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(legend.position="none")
+  theme(legend.position="none")
 
 
 res <- melt(res)
@@ -197,7 +198,7 @@ ggplot(res)+
   geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
   xlab("Added Feature (to intercept)")+
   ylab("BIC Difference (empty-part)")+
-  ggtitle("Step Forward (BIC)")+
+  ggtitle("First Step Forward (BIC)")+
   geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
   theme(legend.position="none")
 

@@ -61,7 +61,7 @@ for (j in 1:length(features)) {
 }
 
 lmFull  <- glm(formula= string , family = binomial(), data = project)
-
+summary(lmFull)
 
 #bic
 fullBIC <- AIC(lmFull, k=log(nrow(project)))
@@ -103,8 +103,8 @@ res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 ggplot(res)+
   geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
   xlab("Excluded Feature (from full model)")+
-  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
-  geom_label(aes(x=reorder(features, -bic), y=(min(bic)-3), label=statChi, fill= pvalColor),size=5)+
+  ylab("BIC Difference (part-full)")+ggtitle("First Step Backwards (BIC)")+
+  #geom_label(aes(x=reorder(features, -bic), y=(min(bic)-3), label=statChi, fill= pvalColor),size=5)+
   ggtitle("Step Backwards (BIC)")+
   theme(legend.position="none", axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+scale_fill_manual(values = c("indianred2","white"))
 
@@ -162,7 +162,7 @@ ggplot(res)+
   geom_bar(aes(x=reorder(features, -bic), y=bic), stat = "identity")+
   xlab("Added Feature (to intercept)")+
   ylab("BIC Difference (empty-part)")+
-  ggtitle("Step Forward (BIC)")+
+  ggtitle("First Step Forward (BIC)")+
   geom_label(aes(x=reorder(features, -bic), y=(min(bic)-1), label=statChi, fill= pvalColor),size=5)+
   theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1),text = element_text(size=20),title =element_text(colour="black",face="bold"))+
   scale_fill_manual(values = c("white"))

@@ -194,7 +194,8 @@ res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 ggplot(res)+
   geom_bar(aes(x=reorder(lables, -statDev), y=statDev), stat = "identity")+
   xlab("Excluded Feature (from full model)")+
-  ylab("BIC Difference (part-full)")+ggtitle("Step Backwards (BIC)")+
+  ylab("BIC Difference (part-full)")+
+  ggtitle("First Step Backwards (BIC)")+
   geom_label(aes(x=reorder(lables, -statDev), y=0, label=statChi, fill= pvalColor),size=5)+
   xlab("Excluded Feature (from full model)")+ylab("Deviance Difference (part-full)")+ggtitle("Step Backwards (BIC)")+ theme(legend.position="none",axis.text.x = element_text(angle = 45, hjust = 1))+scale_fill_manual(values = c("white"))
 
@@ -301,10 +302,11 @@ res$bic <- as.numeric(as.character(res$bic))
 res$statDev <- as.numeric(as.character(res$statDev))
 res$statChi <- round(as.numeric(as.character(res$statChi)),3)
 
-ggplot(res)+geom_bar(aes(x=reorder(lables, -bic), y=bic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("Step Forward (BIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
+#BIC plot
+ggplot(res)+geom_bar(aes(x=reorder(lables, -bic), y=bic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("BIC Difference (empty-part)")+ggtitle("First Step Forward (BIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
 
 
-res2 <- as.data.frame(cbind(lables,bic))
+#BIC pie chart
 colors <- c('rgb(216,179,101)', 'rgb(245,245,245)', 'rgb(90,180,172)')
 
 plot_ly(data, labels = ~lables, values = ~bic, type = 'pie',
@@ -326,18 +328,18 @@ plot_ly(data, labels = ~lables, values = ~bic, type = 'pie',
   color = 'Black'))
 
 
-
+#AIC plot
 res3 <- as.data.frame(cbind(lables,aic))
 res3$aic <- as.numeric(as.character(res3$aic))
 ggplot(res3)+geom_bar(aes(x=reorder(lables, -aic), y=aic,fill="blue"), stat = "identity")+xlab("Added Feature (to intercept)")+ylab("AIC Difference (empty-part)")+ggtitle("Step Forward (AIC)")+ theme(text = element_text(size=20))+scale_fill_manual(values = c("#ec7014"))
 
 
-colors <- c('rgb(216,179,101)', 'rgb(158,154,200)', 'rgb(90,180,172)')
-colors <- c('rgb(158,154,200)', 'rgb(216,179,101)', 'rgb(90,180,172)')
+# colors <- c('rgb(216,179,101)', 'rgb(158,154,200)', 'rgb(90,180,172)')
+# colors <- c('rgb(158,154,200)', 'rgb(216,179,101)', 'rgb(90,180,172)')
 colors <- c('rgb(156,190,189)', 'rgb(210,203,108)', 'rgb(217,217,217)')
 
 
-
+#AIC pie chart
 plot_ly(data, labels = ~lables, values = ~aic, type = 'pie',
         textposition = 'inside',
         textinfo = 'label+percent',
