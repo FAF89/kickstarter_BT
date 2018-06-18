@@ -57,7 +57,7 @@ deviance in general is calculated as:
 $Null Deviance = 2(LL(Saturated Model) - LL(Null Model))$ on df = df_Sat (n) - df_Null (1) = n-1
 $Residual Deviance = 2(LL(Saturated Model) - LL(Proposed Model))$ on df = df_Sat(n) - df_Proposed(k+1=p) = n-p
 
-* The saturated model in a model with n parameters (a parameter for each observation which will create a perfect model).
+* The saturated model in a model with n parameters (a parameter for each observation which will create a perfect model). It is the most complex model I could find. Therefore any other model i would create would be a nested model. when I want to understand how well I did I want to compare myself to the gap of the best model.
 * The null model is a model with the intercept only.
 * The proposed model is the current model with the k parameters in the formula + the intercept.
 
@@ -86,8 +86,8 @@ While looking at the devDif if we get a negative outcome (while using anova(full
 We user BIC because we want to compare models that are not nested and because we want to penalize the model so we will not create an over-fitted model.
 
 To conclude, the difference between BIC and Dev in our case is only by a constant and therefore exactly the same.
-The LR test is done on each column by itself and can help us decide whether we want to use the variable in the "section feature importance" or not. But, just like the BIC, there is still no statistical test we can create between models (columns) because they are not nessted.
-Can we compare models by the p-vals we got?! it is still not a statistical test...
+The LR test is done on each column by itself and can help us decide whether we want to use the variable in the "section feature importance" or not. But, just like the BIC, there is still no statistical test we can create between models (columns) because they are not nested.
+The asimptotic $Chi^2$ distribution is true only when I can show one model is a private case of the other. Ones models are not nested I don't have a reduced and full model and I can't create a statistic. 
 
 ```{r Backward Step, warning=FALSE}
 lmFull  <- glm(success ~ backed + facebookFriends + continent + noFacebookFriends + experience + personal, family = binomial(), data = user)
